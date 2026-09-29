@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # =============================================================================
-# migrate.sh  —  Supabase  ➜  db_sales_novacore, on the VPS
+# migrate.sh  ???  Supabase  ???  db_sales_novacore, on the VPS
 # =============================================================================
 # ONE script, ONE run. It does everything, in this order:
 #
@@ -15,13 +15,21 @@
 #
 # Usage:
 #   export SB_HOST='aws-0-ap-southeast-1.pooler.supabase.com'
-#   export SB_USER='postgres.xxxxxxxxxxxx'
+#   export SB_USER='postgres.xxxxxxxxxxxx'      # note the "postgres." prefix
 #   export SB_PASS='...'
 #   export DB_CONTAINER=kqgwtzqknu9axud1urkau5si
 #
 #   ./migrate.sh --dry-run    # steps 1 and 2 only, then prints the plan
 #   ./migrate.sh              # the real thing
 # =============================================================================
+
+# On Debian and Ubuntu, `sh` is dash, which has no arrays, no `pipefail` and no
+# here-strings - all of which this script uses. Re-exec under bash so that both
+# `./migrate.sh` and `sh migrate.sh` behave the same instead of failing with
+# "set: Illegal option -o pipefail".
+if [ -z "${BASH_VERSION:-}" ]; then
+  exec bash "$0" "$@"
+fi
 
 set -euo pipefail
 
@@ -67,7 +75,7 @@ ENUM_COLUMNS=(
 )
 
 printf "\n\033[1m=============================================================="
-printf "\n Supabase  ➜  %s/%s\033[0m\n" "$DB_CONTAINER" "$DB_NAME"
+printf "\n Supabase  ???  %s/%s\033[0m\n" "$DB_CONTAINER" "$DB_NAME"
 [ "$DRY_RUN" -eq 1 ] && printf " MODE: DRY RUN - only the plan is shown"
 printf "==============================================================\n\033[0m"
 
@@ -129,7 +137,7 @@ ok "${#ENUM_COLUMNS[@]} columns relaxed"
 say "Step 3  Copying data from Supabase"
 # =============================================================================
 # --column-inserts names the source columns explicitly, so the columns this
-# project adds (pic_name, assigned_to_name, …) are simply not mentioned and
+# project adds (pic_name, assigned_to_name, ???) are simply not mentioned and
 # keep their defaults. The app fills them in on write.
 for t in "${TABLES[@]}"; do
   src=$(sb "SELECT count(*) FROM public.$t;")
