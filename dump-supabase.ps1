@@ -100,10 +100,33 @@ $User_ = $cfg['SUPABASE_DB_USER']
 $Pass_ = $cfg['SUPABASE_DB_PASSWORD']
 $Port_ = if ($cfg.ContainsKey('SUPABASE_DB_PORT') -and $cfg['SUPABASE_DB_PORT']) { $cfg['SUPABASE_DB_PORT'] } else { '5432' }
 
+# Preferred path: the whole connection string pasted as one value. The Supabase
+# dashboard shows it ready to copy, and splitting it by hand is where people go
+# wrong - the pooler URI puts the username BEFORE the colon, which is the
+# opposite of the more familiar postgresql://user:pass@host form.
+if ($cfg['SUPABASE_DB_URL']) {
+    $uri = $cfg['SUPABASE_DB_URL']
+    if ($uri -notmatch '^(postgres|postgresql)://') {
+        Fail "SUPABASE_DB_URL must start with postgres:// or postgresql://"
+    }
+    try {
+        $parsed = [Uri]$uri
+    } catch {
+        Fail "Could not parse SUPABASE_DB_URL as a connection string."
+    }
+
+    $userinfo = $parsed.UserInfo -split ':', 2
+    $Host_ = $parsed.Host
+    $User_ = [Uri]::UnescapeDataString($userinfo[0])
+    if ($userinfo.Count -gt 1) { $Pass_ = [Uri]::UnescapeDataString($userinfo[1]) }
+    # Only override the port if the URI carries an explicit non-default one.
+    if ($parsed.Port -gt 0) { $Port_ = [string]$parsed.Port }
+}
+
 $missing = @()
-if (-not $Host_) { $missing += 'SUPABASE_DB_HOST' }
-if (-not $User_) { $missing += 'SUPABASE_DB_USER' }
-if (-not $Pass_) { $missing += 'SUPABASE_DB_PASSWORD' }
+if (-not $Host_) { $missing += 'SUPABASE_DB_HOST (or SUPABASE_DB_URL)' }
+if (-not $User_) { $missing += 'SUPABASE_DB_USER (or SUPABASE_DB_URL)' }
+if (-not $Pass_) { $missing += 'SUPABASE_DB_PASSWORD (or SUPABASE_DB_URL)' }
 if ($missing.Count -gt 0) {
     Fail "Missing in ${EnvFile}: $($missing -join ', ')"
 }
