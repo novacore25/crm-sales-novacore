@@ -416,6 +416,53 @@ export default function DashboardClient({
       .sort((a, b) => b.days - a.days);
   }, [ghosted]);
 
+  /**
+   * Scale a monthly target down to the window actually being viewed.
+   *
+   * A three-day view must not be measured against a full month, or the bar sits
+   * near zero no matter how well the rep did. Defined once and used by both the
+   * bar and its label, because the old code divided by 4 in the bar AND printed
+   * `targetChat / 4` in the label, so the number shown and the number used were
+   * both wrong and disagreed with each other.
+   *
+   * Returns 1 (no scaling) when no range is selected, so a full-period view
+   * compares like with like.
+   */
+  const prorate = useMemo(() => {
+    if (!filterStart || !filterEnd) return (_monthly: number) => _monthly;
+
+    const spanDays = Math.max(
+      1,
+      Math.round(
+        (parseDateString(filterEnd) - parseDateString(filterStart)) / 86_400_000,
+      ) + 1,
+    );
+    const daysInMonth = new Date(
+      Number(currentTargetMonth.slice(0, 4)),
+      Number(currentTargetMonth.slice(5, 7)),
+      0,
+    ).getDate();
+    // Clamped: selecting a range longer than the month must not inflate the
+    // target past the monthly figure.
+    const share = Math.min(1, spanDays / Math.max(1, daysInMonth));
+
+    return (monthly: number) => monthly * share;
+  }, [filterStart, filterEnd, currentTargetMonth]);
+
+  /**
+   * Revenue sitting in the unattributed bucket.
+   *
+   * Surfaced as a headline warning rather than only as a row in the panel: a
+   * sum that large is not a rounding artifact, and whoever looks at the
+   * contribution figures needs to know a meaningful slice of them has no owner.
+   */
+  const unattributedRevenue = useMemo(
+    () => contributions
+      .filter(c => c.adminName === 'Tanpa PIC')
+      .reduce((sum, c) => sum + Number(c.totalRevenue), 0),
+    [contributions],
+  );
+
   const handleGlobalSync = async () => { alert("Global Sync is disabled in Next.js version"); };
 
   const fixSuperImportData = async () => { alert("Fix Super Import is disabled in Next.js version"); };
@@ -690,78 +737,69 @@ export default function DashboardClient({
           </div>
 
           <div className="bg-white rounded-3xl border border-slate-200 p-6 md:p-8 shadow-sm flex flex-col h-[400px] md:h-[420px]">
-            <h4 className="text-sm font-black text-slate-900 uppercase tracking-widest mb-6 flex items-center gap-2 shrink-0">
+            <h4 className="text-sm font-black text-slate-900 uppercase tracking-widest mb-2 flex items-center gap-2 shrink-0">
               <div className="w-1.5 h-4 bg-indigo-600 rounded-full"></div>
               Individual Target Contribution
             </h4>
+            {unattributedRevenue > 0 && (
+              // Nine won deals have no funnel_history row and no pic_name, so
+              // nobody can be credited for Rp 1.92 billion. Flagged here rather
+              // than shown as a rep, because a row labelled with someone's name
+              // would read as their achievement and quietly misattribute it.
+              <p className="text-[10px] text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 mb-4 leading-relaxed shrink-0">
+                <span className="font-black">Tanpa PIC:</span>{' '}
+                {new Intl.NumberFormat('id-ID', {
+                  style: 'currency',
+                  currency: 'IDR',
+                  maximumFractionDigits: 0,
+                }).format(unattributedRevenue)} dari total revenue tidak bisa
+                diatribusikan ke nama tertentu — lead-nya berstatus Close Win tapi
+                tidak punya riwayat PIC. Baris
+                <span className="font-black"> &quot;Tanpa PIC&quot; </span>
+                di bawah menunjukkannya, bukan sebuah pencapaian.
+              </p>
+            )}
             <div className="space-y-6 overflow-y-auto flex-1 pr-2 custom-scrollbar">
               {contributions.map((contribution, index) => {
                 const admin = contribution.adminName;
                 const adminChat = Number(contribution.totalChat);
                 const adminMeet = Number(contribution.totalMeet);
                 const adminRev = Number(contribution.totalRevenue);
+                // The unattributed bucket must not collect a trophy or a medal.
+                const isUnattributed = admin === 'Tanpa PIC';
 
                 let pChat = 0, pMeet = 0, pRev = 0;
                 const adminRef = users.find(u => u.name === admin);
                 const personalTarget = adminRef ? individualTargets.find(it => it.userId === adminRef.uid && it.monthYear === currentTargetMonth) : null;
 
-                /**
-                 * Progress against a monthly target, prorated to the visible
-                 * window.
-                 *
-                 * Two things were wrong here.
-                 *
-                 * The old code divided chat and meeting targets by 4, silently.
-                 * Someone typed "80" as a monthly chat target and the bar
-                 * measured against 20. A hardcoded divisor with no label is not
-                 * a business rule, it is a number that happened to be there, and
-                 * it made every rep's bar wrong by a factor of four while
-                 * looking completely plausible.
-                 *
-                 * The old code also reported 100% for any activity above zero
-                 * when no target existed. A rep with one chat and no target at
-                 * all showed a full bar, which reads as "target met". It is not;
-                 * the target is simply unknown. Those cases now show 0 with the
-                 * "belum diset" label that was already next to them.
-                 */
                 if (filterStart && filterEnd) {
                   const tChat = personalTarget?.targetChat || 0;
                   const tMeet = personalTarget?.targetMeeting || 0;
                   const tRev = personalTarget?.targetRevenue || 0;
 
-                  // Prorate a monthly target down to the number of days
-                  // actually being looked at, so a three-day view does not
-                  // measure against a full month.
-                  const spanDays = Math.max(
-                    1,
-                    Math.round(
-                      (parseDateString(filterEnd) - parseDateString(filterStart)) / 86_400_000,
-                    ) + 1,
-                  );
-                  const daysInMonth = new Date(
-                    Number(currentTargetMonth.slice(0, 4)),
-                    Number(currentTargetMonth.slice(5, 7)),
-                    0,
-                  ).getDate();
-                  const share = Math.min(1, spanDays / daysInMonth);
-
-                  const prorated = (monthly: number) => monthly * share;
-
-                  pChat = tChat ? Math.min(100, (adminChat / prorated(tChat)) * 100) : 0;
-                  pMeet = tMeet ? Math.min(100, (adminMeet / prorated(tMeet)) * 100) : 0;
-                  pRev = tRev ? Math.min(100, (adminRev / prorated(tRev)) * 100) : 0;
+                  pChat = tChat ? Math.min(100, (adminChat / prorate(tChat)) * 100) : 0;
+                  pMeet = tMeet ? Math.min(100, (adminMeet / prorate(tMeet)) * 100) : 0;
+                  pRev = tRev ? Math.min(100, (adminRev / prorate(tRev)) * 100) : 0;
                 }
 
                 return (
                   <div key={admin} className="group border-b border-slate-50 pb-4 last:border-0 relative">
                     <div className="flex justify-between items-end mb-3">
                       <span className="text-sm font-bold text-slate-700 group-hover:text-indigo-600 transition flex items-center gap-2">
-                        {index === 0 && <Trophy className="w-4 h-4 text-amber-400 fill-amber-400" />}
-                        {index === 1 && <Trophy className="w-4 h-4 text-slate-300 fill-slate-300" />}
-                        {index === 2 && <Trophy className="w-4 h-4 text-amber-700 fill-amber-700" />}
-                        {admin}
+                        {/* A trophy for a bucket with no person in it would be
+                            absurd, and it ranked first precisely because the
+                            unattributed revenue is the largest single figure. */}
+                        {index === 0 && !isUnattributed && <Trophy className="w-4 h-4 text-amber-400 fill-amber-400" />}
+                        {index === 1 && !isUnattributed && <Trophy className="w-4 h-4 text-slate-300 fill-slate-300" />}
+                        {index === 2 && !isUnattributed && <Trophy className="w-4 h-4 text-amber-700 fill-amber-700" />}
+                        <span className={isUnattributed ? 'text-amber-700 italic' : undefined}>
+                          {admin}
+                        </span>
                       </span>
-                      <span className="text-[10px] font-black tracking-widest text-emerald-600">
+                      <span className={cn(
+                        "text-[10px] font-black tracking-widest",
+                        isUnattributed ? 'text-amber-600' : 'text-emerald-600',
+                      )}>
                         {new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', maximumFractionDigits: 0 }).format(adminRev)}
                       </span>
                     </div>
@@ -771,7 +809,19 @@ export default function DashboardClient({
                       <div className="flex justify-between text-[9px] font-black uppercase tracking-widest text-slate-400 mb-1.5">
                         <span>Chat ({adminChat})</span>
                         {filterStart && filterEnd ? (
-                          <span>Target Mingguan: {personalTarget?.targetChat ? Math.round(personalTarget.targetChat / 4) : 'Belum diset'}</span>
+                          /* Show the target the bar is actually measured against.
+                             The old label printed `targetChat / 4` while the bar
+                             divided the same number by 4 again, so the figure
+                             shown and the figure used were both wrong and did
+                             not match each other. `prorate` is the single
+                             source of truth for both. */
+                          <span>
+                            {isUnattributed
+                              ? 'Tanpa target'
+                              : personalTarget?.targetChat
+                                ? `Target (${Math.round(prorate(personalTarget.targetChat))} di periode ini)`
+                                : 'Belum diset'}
+                          </span>
                         ) : null}
                       </div>
                       <div className="h-1.5 bg-slate-100 rounded-full overflow-hidden">

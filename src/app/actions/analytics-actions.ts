@@ -234,7 +234,12 @@ export async function getIndividualContributions(filters: {
 
   const result = await db.execute(sql`
     WITH valid_leads AS (
-      SELECT l.id, l.deal_value
+      -- Every column referenced downstream must be projected here. status is
+      -- filtered on by win_owner, and pic_name is the last fallback for deal
+      -- ownership; omitting either produces "column vl.<x> does not exist" at
+      -- runtime. status shipping without it once cost a production outage -
+      -- tsc and the build both passed, because neither parses SQL.
+      SELECT l.id, l.deal_value, l.status, l.pic_name
       FROM leads l
       WHERE l.is_deleted = false
         AND (${category}::text IS NULL OR l.category = ${category})
@@ -265,9 +270,27 @@ export async function getIndividualContributions(filters: {
     -- applies. It does honour the PIC filter, so filtering to one rep shows that
     -- rep's book rather than the whole team's, which is the point of the filter.
     win_owner AS (
+      -- The owner label is NOT '-'.
+      --
+      -- Nine won deals carry Rp 1.92 billion and have no funnel_history row
+      -- at all - not a row with a null name, no row - and leads.pic_name is
+      -- empty for them too. Their revenue is real; the person who closed them
+      -- simply is not in the data.
+      --
+      -- The old '-' made that look like a person whose name failed to render,
+      -- so the panel showed a single row crediting nearly half the company
+      -- revenue to a rep called "-". Naming the gap is the honest version: it
+      -- cannot be mistaken for an achievement, and it tells whoever reviews
+      -- the panel that the ownership data is incomplete rather than that one
+      -- rep banked everything.
       SELECT DISTINCT ON (vl.id)
         vl.id AS lead_id,
-        COALESCE(win.by_user_name, last_touch.by_user_name, '-') AS owner,
+        COALESCE(
+          NULLIF(win.by_user_name, ''),
+          NULLIF(last_touch.by_user_name, ''),
+          NULLIF(vl.pic_name, ''),
+          'Tanpa PIC'
+        ) AS owner,
         COALESCE(win.deal_value, vl.deal_value, 0) AS revenue
       FROM valid_leads vl
       LEFT JOIN LATERAL (
