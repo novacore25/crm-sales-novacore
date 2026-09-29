@@ -46,6 +46,18 @@ const EMPTY_STATS: DashboardStats = {
 };
 
 /**
+ * `db.execute()` on the node-postgres driver resolves to the raw `pg`
+ * QueryResult, not to an array. The rows live on `.rows`. This normalises
+ * both shapes, so the analytics queries below stay readable and a future
+ * driver change cannot turn into a runtime TypeError on the dashboard.
+ */
+function rowsOf<T>(result: unknown): T[] {
+  if (Array.isArray(result)) return result as T[];
+  const rows = (result as { rows?: T[] } | null)?.rows;
+  return Array.isArray(rows) ? rows : [];
+}
+
+/**
  * Aggregate funnel metrics for a date window.
  *
  * This is the SQL that used to live in the `get_dashboard_stats` Postgres
@@ -114,7 +126,7 @@ export async function getDashboardStats(filters: {
     FROM scoped
   `);
 
-  const rows = result as unknown as Array<Record<string, number | null>>;
+  const rows = rowsOf<Record<string, number | null>>(result);
   const row = rows[0];
   if (!row) return EMPTY_STATS;
 
@@ -181,7 +193,7 @@ export async function getIndividualContributions(filters: {
     ORDER BY by_user_name
   `);
 
-  const rows = result as unknown as Array<Record<string, string | number | null>>;
+  const rows = rowsOf<Record<string, string | number | null>>(result);
   return rows.map((r) => ({
     adminName: String(r.admin_name ?? '-'),
     totalChat: Number(r.total_chat ?? 0),
@@ -241,7 +253,7 @@ export async function getGhostedLeads(filters: {
     LIMIT 200
   `);
 
-  const rows = result as unknown as Array<Record<string, string | number | null>>;
+  const rows = rowsOf<Record<string, string | number | null>>(result);
   return rows.map((r) => ({
     leadId: String(r.lead_id),
     brandName: String(r.brand_name ?? '-'),
