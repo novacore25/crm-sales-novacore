@@ -110,15 +110,21 @@ say "Cutoff: anything changed after $CUTOFF"
 # ---------------------------------------------------------------------------
 say "Step 1  Column check"
 declare -A COLS=()
+declare -A SAVED_SHARED=()
 for spec in "${TABLES[@]}"; do
   t="${spec%%:*}"
 
   # One column per line, target order preserved. Reading them as lines avoids
   # the nested quoting that printed "created_at'" in the previous run.
+  #
+  # updated_at is NOT excluded. An earlier version filtered it out here, and
+  # because the drift check compares the two lists, that exclusion made
+  # updated_at look like a Supabase-only column and aborted the whole run. The
+  # column exists on both sides and syncing it is correct: a row that came from
+  # Supabase should carry Supabase's idea of when it was last touched.
   mapfile -t tgt_cols < <(db "SELECT attname FROM pg_attribute
                             WHERE attrelid = 'public.$t'::regclass
                               AND attnum > 0 AND NOT attisdropped
-                              AND attname <> 'updated_at'
                             ORDER BY attnum;")
   mapfile -t src_cols < <(sb "SELECT column_name FROM information_schema.columns
                              WHERE table_schema = 'public' AND table_name = '$t'
@@ -163,6 +169,11 @@ for spec in "${TABLES[@]}"; do
 
   # Quoted for SQL. These are identifiers, never literals.
   COLS["$t"]=$(printf '%s\n' "${shared[@]}" | sed 's/.*/"&"/' | paste -sd, -)
+
+  # `shared` is a plain loop variable, so it is rebuilt in the merge loop below.
+  # Saving the list is what keeps the two loops from disagreeing about which
+  # columns exist.
+  SAVED_SHARED[$t]="${shared[*]}"
 
   printf '  %-16s %2d shared' "$t" "${#shared[@]}"
   if [ "${#only_tgt[@]}" -gt 0 ]; then
@@ -234,6 +245,21 @@ for spec in "${TABLES[@]}"; do
 
   pk="$(primary_key "$t")"
   collist="${COLS[$t]}"
+
+  # SET clause for the upsert: every shared column except the primary key.
+  # Rebuilt from the list saved during the preflight, so this loop cannot pick
+  # up columns left over from a previous table's iteration.
+  mapfile -t shared < <(printf '%s\n' ${SAVED_SHARED[$t]})
+  updlist="$(printf '%s\n' "${shared[@]}" \
+    | grep -vx "$pk" \
+    | sed 's/.*/"&" = EXCLUDED."&"/' \
+    | paste -sd, -)"
+  if [ -z "$updlist" ]; then
+    err "$t - no updatable columns, skipping."
+    failed=1
+    continue
+  fi
+
   sql="$WORK/$t.sql"
   cat > "$sql" <<SQL
 BEGIN;
@@ -252,15 +278,31 @@ BEGIN
   IF staged <> $n THEN
     RAISE EXCEPTION 'ABORT: row count mismatch, target untouched';
   END IF;
+
   EXECUTE format('SELECT count(*) FROM public.%I WHERE %I = ANY(SELECT %I FROM stg)',
                  '$t', '$pk', '$pk') INTO existing;
   RAISE NOTICE 'RESULT new=%, updated=%', staged - existing, existing;
-  EXECUTE format('DELETE FROM public.%I WHERE %I = ANY(SELECT %I FROM stg)',
-                 '$t', '$pk', '$pk');
-  -- Named columns only. Anything the source does not have keeps its default,
-  -- which is the right outcome for updated_by: a row that came from Supabase
-  -- genuinely has no VPS-side editor.
-  EXECUTE 'INSERT INTO public.' || quote_ident('$t') || ' ($collist) SELECT $collist FROM stg';
+
+  -- ON CONFLICT DO UPDATE, never DELETE-then-INSERT.
+  --
+  -- leads has children with ON DELETE CASCADE (funnel_history, lead_notes,
+  -- oi_forecasts) and users has one (individual_targets). Deleting a row to
+  -- re-insert it would silently destroy every one of those child rows. An upsert
+  -- touches only the row it names, and is just as idempotent: re-running it
+  -- writes the same values again.
+  --
+  -- Only the shared columns are written. A target-only column such as
+  -- updated_by keeps whatever the VPS already has, which is the right outcome:
+  -- a row that came from Supabase has no VPS-side editor, and a row that was
+  -- edited on the VPS should not lose that record because the source also has
+  -- an older copy.
+  -- The update list is built in bash, from the same columns, and passed in as
+  -- a plain parameter. Embedding it in the SQL through a nested quote is what
+  -- produced the stray apostrophe in an earlier run.
+  EXECUTE format(
+    'INSERT INTO public.%I ($collist) SELECT $collist FROM stg
+       ON CONFLICT ($pk) DO UPDATE SET %s',
+    '$t', '$updlist');
 END
 \$\$;
 COMMIT;
