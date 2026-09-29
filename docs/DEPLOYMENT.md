@@ -42,7 +42,7 @@ stage list), but it is still a write to production.
 In the Coolify application resource, set these environment variables first:
 
 ```
-DATABASE_URL=postgresql://postgres:<password>@crm-sales-db:5432/db_sales_novacore
+DATABASE_URL=postgresql://postgres:<password>@crm-sales-db:5432/sales_novacore
 AUTH_SECRET=<output of: openssl rand -base64 32>
 AUTH_TRUST_HOST=true
 AUTH_URL=https://<your-domain>
@@ -71,7 +71,7 @@ npm run db:migrate
 Check it worked:
 
 ```bash
-docker exec -it <crm-sales-db-container> psql -U postgres -d db_sales_novacore \
+docker exec -it <crm-sales-db-container> psql -U postgres -d sales_novacore \
   -c "\dt"
 ```
 
@@ -93,7 +93,7 @@ export SB_PORT=5432
 export DB_HOST='crm-sales-db'
 export DB_USER='postgres'
 export DB_PASS='<password from the crm-sales-db resource>'
-export DB_NAME='db_sales_novacore'
+export DB_NAME='sales_novacore'
 
 ./migrate-data.sh --dry-run     # counts only, copies nothing
 ./migrate-data.sh               # the real thing
@@ -129,7 +129,7 @@ Expect:
 first account has to be promoted directly:
 
 ```bash
-docker exec -it <crm-sales-db-container> psql -U postgres -d db_sales_novacore \
+docker exec -it <crm-sales-db-container> psql -U postgres -d sales_novacore \
   -c "UPDATE users SET role='lord' WHERE email='<your email>';"
 ```
 

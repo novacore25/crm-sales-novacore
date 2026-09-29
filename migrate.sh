@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # =============================================================================
-# migrate.sh  --  Supabase  ->  db_sales_novacore, on the VPS
+# migrate.sh  --  Supabase  ->  sales_novacore, on the VPS
 # =============================================================================
 # ONE script, ONE run. It does everything, in this order:
 #
@@ -38,7 +38,7 @@ SB_USER="${SB_USER:?set SB_USER}"
 SB_PASS="${SB_PASS:?set SB_PASS}"
 SB_PORT="${SB_PORT:-5432}"
 DB_CONTAINER="${DB_CONTAINER:?set DB_CONTAINER}"
-DB_NAME="${DB_NAME:-db_sales_novacore}"
+DB_NAME="${DB_NAME:-sales_novacore}"
 REPO="${REPO:-novacore25/crm-sales-novacore}"
 BRANCH="${BRANCH:-main}"
 

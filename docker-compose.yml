@@ -15,7 +15,7 @@ services:
     environment:
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: postgres
-      POSTGRES_DB: db_sales_novacore
+      POSTGRES_DB: sales_novacore
       # Deterministic collation, matching the VPS instance.
       POSTGRES_INITDB_ARGS: "--locale-provider=libc --locale=en_US.utf8"
     ports:
@@ -23,7 +23,7 @@ services:
     volumes:
       - crm_sales_pgdata:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U postgres -d db_sales_novacore"]
+      test: ["CMD-SHELL", "pg_isready -U postgres -d sales_novacore"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -37,7 +37,7 @@ services:
     volumes:
       - .:/app
     environment:
-      DATABASE_URL: postgresql://postgres:postgres@postgres:5432/db_sales_novacore
+      DATABASE_URL: postgresql://postgres:postgres@postgres:5432/sales_novacore
     command: sh -c "npm ci && npm run db:push"
     depends_on:
       postgres:
