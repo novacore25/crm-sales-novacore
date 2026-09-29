@@ -1,5 +1,5 @@
 "use client";
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { Fragment, useCallback, useEffect, useRef, useState } from 'react';
 import type { LeadDTO, OIForecastDTO, ProductOffered, UserProfile } from '@/types';
 import { createOIForecast, deleteOIForecast, setOIForecastStatus, updateOIForecastField } from '@/app/actions/forecast-actions';
 import { getLeadById } from '@/app/actions/lead-actions';
@@ -49,6 +49,63 @@ const formatIDDate = (dateString: string) => {
   if (isNaN(d.getTime())) return dateString;
   return `${d.getDate()} ${months[d.getMonth()]} ${d.getFullYear()}`;
 };
+
+/**
+ * Timestamps down to the minute, in the reader's own timezone.
+ *
+ * toLocaleString is used rather than a hand-built format because the server
+ * stores UTC while the team reads in WIB: an entry written at 07:00 UTC is 14:00
+ * for the rep who made it, and showing 07:00 would make their own work look
+ * like it happened in the middle of the night. The minute matters too — when
+ * two reps are asked who touched a number, 14:03 and 14:58 are different
+ * events.
+ */
+function formatMoment(iso: string | null | undefined): string {
+  if (!iso) return '-';
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return '-';
+  return new Intl.DateTimeFormat('id-ID', {
+    day: '2-digit',
+    month: 'short',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+  }).format(d);
+}
+
+/** Compact form for milestone chips, where horizontal space is scarce. */
+function formatShortMoment(iso: string | null | undefined): string {
+  if (!iso) return '-';
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return '-';
+  return new Intl.DateTimeFormat('id-ID', {
+    day: '2-digit',
+    month: 'short',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+  }).format(d);
+}
+
+/**
+ * Stage colours for the milestone chips. Unknown stages fall back to neutral
+ * grey rather than disappearing, so a new stage someone invents is still
+ * visible instead of rendering as a blank gap.
+ */
+const STAGE_TONE: Record<string, string> = {
+  Leads: 'bg-slate-100 text-slate-600 border-slate-200',
+  Input: 'bg-slate-100 text-slate-600 border-slate-200',
+  Chated: 'bg-sky-50 text-sky-700 border-sky-200',
+  Responsed: 'bg-blue-50 text-blue-700 border-blue-200',
+  'Set Meeting': 'bg-violet-50 text-violet-700 border-violet-200',
+  Hold: 'bg-amber-50 text-amber-700 border-amber-200',
+  'Close Win': 'bg-emerald-50 text-emerald-700 border-emerald-200',
+  'Close Lost': 'bg-rose-50 text-rose-700 border-rose-200',
+  Failed: 'bg-rose-100 text-rose-800 border-rose-300',
+};
+
+const stageTone = (stage: string) => STAGE_TONE[stage] ?? 'bg-slate-50 text-slate-600 border-slate-200';
 
 export default function OIGrid({
   forecasts,
@@ -220,10 +277,22 @@ export default function OIGrid({
         picInvoice: null,
         isDeleted: false,
         createdAt: now,
-        updatedAt: now,
         latestStage: latest?.stage ?? null,
         latestPic: latest?.byUserName ?? null,
         latestStageDate: latest?.dateOccurred ?? null,
+        // The row was just created by the signed-in user, so the attribution is
+        // known without a refetch.
+        updatedAt: now,
+        updatedBy: user.id,
+        updatedByName: user.name,
+        // The freshly added brand has no forecast-side history yet; its lead's
+        // funnel trail is loaded when the grid next refetches.
+        milestones: (lead?.funnelHistory ?? []).map((h) => ({
+          stage: h.stage,
+          by: h.byUserName ?? null,
+          at: h.dateOccurred ?? null,
+          note: h.note ?? null,
+        })),
       });
 
       toast.success('Berhasil ditambahkan ke Forecast');
@@ -433,8 +502,14 @@ export default function OIGrid({
                 const brandName = f.brandName || 'Unknown Brand';
                 const scenario = getScenarioInfo(f.successRate || 0);
 
+                // The milestone trail is truncated to the most recent steps.
+                // Showing all of them would turn every row into a wall of chips;
+                // the full trail lives on the lead page.
+                const recentMilestones = (f.milestones ?? []).slice(-4);
+
                 return (
-                  <tr key={f.id} className="hover:bg-slate-50/80 group border-b border-slate-100">
+                  <Fragment key={f.id}>
+                  <tr className="hover:bg-slate-50/80 group border-b border-slate-100">
                     <td className="px-2 py-2 border-r border-slate-100 text-center">
                       <button
                         onClick={() => handleDelete(f.id)}
@@ -658,6 +733,64 @@ export default function OIGrid({
                       />
                     </td>
                   </tr>
+
+                  {/* Attribution strip, directly under the inputs.
+                      Every number in this grid can be disputed in a meeting, and
+                      "who changed this?" was previously unanswerable. This row
+                      carries the journey (which milestones were reached, by
+                      whom, when) plus who last touched the numbers. */}
+                  <tr className="bg-slate-50/70 border-b border-slate-200">
+                    <td colSpan={19} className="px-4 py-1.5">
+                      <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[10px] text-slate-500">
+                        <span className="font-black uppercase tracking-widest text-slate-400">
+                          Status Terakhir
+                        </span>
+
+                        {recentMilestones.length === 0 ? (
+                          <span className="italic text-slate-400">
+                            Belum ada riwayat funnel untuk brand ini
+                          </span>
+                        ) : (
+                          <span className="flex flex-wrap items-center gap-1">
+                            {recentMilestones.map((m, i) => (
+                              <Fragment key={`${f.id}-ms-${i}`}>
+                                {i > 0 && <span className="text-slate-300">&rarr;</span>}
+                                <span
+                                  title={m.note || undefined}
+                                  className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded border font-bold ${stageTone(m.stage)}`}
+                                >
+                                  {m.stage}
+                                  <span className="font-normal opacity-80">{formatShortMoment(m.at)}</span>
+                                  {m.by && <span className="font-normal opacity-80">&middot; {m.by}</span>}
+                                </span>
+                              </Fragment>
+                            ))}
+                            {(f.milestones?.length ?? 0) > recentMilestones.length && (
+                              <span className="text-slate-400">
+                                +{(f.milestones?.length ?? 0) - recentMilestones.length} tahap sebelumnya
+                              </span>
+                            )}
+                          </span>
+                        )}
+
+                        <span className="ml-auto flex items-center gap-1 text-slate-400">
+                          <span className="font-black uppercase tracking-widest">Update</span>
+                          {f.updatedByName ? (
+                            <span className="text-slate-600">
+                              {f.updatedByName} &middot; {formatMoment(f.updatedAt)}
+                            </span>
+                          ) : (
+                            // Pre-audit rows carry no attribution. Saying so beats
+                            // showing a blank, which reads as "not yet updated".
+                            <span className="italic text-slate-400">
+                              belum tercatat (sebelum pencatatan update)
+                            </span>
+                          )}
+                        </span>
+                      </div>
+                    </td>
+                  </tr>
+                  </Fragment>
                 );
               })
             )}

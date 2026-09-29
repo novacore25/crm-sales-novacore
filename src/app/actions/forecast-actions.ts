@@ -65,6 +65,14 @@ const toDateStr = (v: unknown): string | null => {
   return Number.isNaN(d.getTime()) ? null : d.toISOString().slice(0, 10);
 };
 
+/** One step in a lead's funnel trail, as shown in the grid. */
+export interface OIMilestone {
+  stage: string;
+  by: string | null;
+  at: string | null;
+  note: string | null;
+}
+
 export interface OIForecastRow {
   id: string;
   leadId: string;
@@ -95,16 +103,22 @@ export interface OIForecastRow {
   picInvoice: string | null;
   isDeleted: boolean;
   createdAt: string;
-  updatedAt: string;
   latestStage: string | null;
   latestPic: string | null;
   latestStageDate: string | null;
+  /** Who last edited this row, and when - to the minute. */
+  updatedAt: string | null;
+  updatedBy: string | null;
+  updatedByName: string | null;
+  /** The full funnel trail for the lead behind this forecast. */
+  milestones: OIMilestone[];
 }
 
 export async function getOIForecasts(): Promise<OIForecastRow[]> {
   await requireUser();
 
-  // The three "latest action" columns come from ONE lateral join.
+  // The three "latest action" columns come from ONE lateral join, and a second
+  // lateral aggregates the whole milestone trail for the row.
   //
   // The previous version wrote three identical correlated subqueries, each with
   // its own ORDER BY ... LIMIT 1, so resolving the latest funnel row per
@@ -112,13 +126,30 @@ export async function getOIForecasts(): Promise<OIForecastRow[]> {
   // Postgres scan that index once and return all three columns from the row it
   // settled on. Semantics are identical - ORDER BY date_occurred DESC,
   // created_at DESC in both.
+  //
+  // `milestones` carries the whole journey, not just where it ended, so the
+  // grid can show "Close Win 15 Sep oleh Budi" next to "Responsed 3 Sep oleh
+  // Budi" - who moved the deal, and when, at each step.
   const rows = await db.execute(sql`
     SELECT
       f.*,
       l.brand_name,
       latest.stage         AS latest_stage,
       latest.by_user_name  AS latest_pic,
-      latest.date_occurred AS latest_stage_date
+      latest.date_occurred AS latest_stage_date,
+      (
+        SELECT json_agg(
+                 json_build_object(
+                   'stage', fh.stage,
+                   'by',    fh.by_user_name,
+                   'at',    fh.date_occurred,
+                   'note',  fh.note
+                 )
+                 ORDER BY fh.date_occurred, fh.created_at
+               )
+        FROM funnel_history fh
+        WHERE fh.lead_id = f.lead_id
+      ) AS milestones
     FROM oi_forecasts f
     LEFT JOIN leads l ON l.id = f.lead_id
     LEFT JOIN LATERAL (
@@ -161,11 +192,40 @@ export async function getOIForecasts(): Promise<OIForecastRow[]> {
     picInvoice: (r.pic_invoice as string | null) ?? null,
     isDeleted: r.is_deleted === true || r.is_deleted === 't',
     createdAt: toIso(r.created_at) ?? '',
-    updatedAt: toIso(r.updated_at) ?? '',
     latestStage: (r.latest_stage as string | null) ?? null,
     latestPic: (r.latest_pic as string | null) ?? null,
     latestStageDate: toIso(r.latest_stage_date),
+    updatedBy: (r.updated_by as string | null) ?? null,
+    updatedByName: (r.updated_by_name as string | null) ?? null,
+    updatedAt: toIso(r.updated_at),
+    milestones: toMilestones(r.milestones),
   }));
+}
+
+/**
+ * Normalise the json_agg result. pg returns json as a string unless parsed, so
+ * accept both shapes.
+ */
+function toMilestones(raw: unknown): OIMilestone[] {
+  let value: unknown = raw;
+  if (typeof value === 'string') {
+    try {
+      value = JSON.parse(value);
+    } catch {
+      return [];
+    }
+  }
+  if (!Array.isArray(value)) return [];
+
+  return value.map((m) => {
+    const o = (m ?? {}) as Record<string, unknown>;
+    return {
+      stage: String(o.stage ?? ''),
+      by: (o.by as string | null) ?? null,
+      at: toIso(o.at),
+      note: (o.note as string | null) ?? null,
+    };
+  });
 }
 
 const forecastSchema = z.object({
@@ -189,7 +249,7 @@ const forecastSchema = z.object({
 export async function createOIForecast(
   input: z.infer<typeof forecastSchema>,
 ): Promise<{ success: boolean; id?: string; error?: string }> {
-  await requireUser();
+  const user = await requireUser();
 
   const parsed = forecastSchema.safeParse(input);
   if (!parsed.success) return { success: false, error: parsed.error.issues[0]?.message };
@@ -242,6 +302,10 @@ export async function createOIForecast(
       category: data.category ?? null,
       createdAt: now,
       updatedAt: now,
+      // The row is born attributed: whoever added the brand owns it until
+      // someone else edits it.
+      updatedBy: user.id,
+      updatedByName: user.name,
     });
   } catch (error) {
     // The unique index is the authoritative guard; translate its violation into
@@ -304,12 +368,18 @@ export async function updateOIForecastField(input: {
   field: string;
   value: string | number | null;
 }): Promise<{ success: boolean; error?: string }> {
-  await requireUser();
+  const user = await requireUser();
 
   const { id, field } = input;
   const raw = input.value;
 
-  const patch: Record<string, unknown> = { updatedAt: new Date() };
+  // Every cell edit is attributed. Without this the grid could only say a row
+  // changed at some point, which is not enough to settle a disputed number.
+  const patch: Record<string, unknown> = {
+    updatedAt: new Date(),
+    updatedBy: user.id,
+    updatedByName: user.name,
+  };
 
   if (EDITABLE_NUMERIC_FIELDS.has(field)) {
     if (field === 'campaignNumber') {
@@ -377,7 +447,7 @@ export async function setOIForecastStatus(input: {
   status: 'WIN' | 'LOSE' | 'OPEN';
   dealValue?: number | null;
 }): Promise<{ success: boolean; error?: string }> {
-  await requireUser();
+  const user = await requireUser();
 
   const rows = await db
     .select()
@@ -395,7 +465,12 @@ export async function setOIForecastStatus(input: {
   await db.transaction(async (tx) => {
     await tx
       .update(oiForecasts)
-      .set({ status: input.status, updatedAt: now })
+      .set({
+        status: input.status,
+        updatedAt: now,
+        updatedBy: user.id,
+        updatedByName: user.name,
+      })
       .where(eq(oiForecasts.id, forecast.id));
 
     if (isRevert) {

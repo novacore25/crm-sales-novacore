@@ -119,6 +119,34 @@ already in the database.
 
 ---
 
+## Row attribution (added after the first audit pass)
+
+The grid could not answer "who changed this number?". `updated_at` recorded that
+*something* changed at a time, but not who, and a disputed figure had to be
+settled by asking the room.
+
+`oi_forecasts` gained `updated_by` (FK to `users`, `ON DELETE SET NULL`) and
+`updated_by_name`. Every write path sets them: `createOIForecast`,
+`updateOIForecastField`, and `setOIForecastStatus`. Migration:
+`drizzle/0002_wonderful_payback.sql`, idempotent.
+
+`getOIForecasts` now also returns `milestones` — the lead's whole funnel trail,
+aggregated with `json_agg` in a second `LEFT JOIN LATERAL` alongside the
+existing latest-stage lookup. The grid renders the four most recent as chips
+("Close Win · 15 Sep, 14:32 · Budi → ...") plus a "+N tahap sebelumnya" marker;
+the full trail stays on the lead page, where there is room for it.
+
+Timestamps are rendered with `Intl.DateTimeFormat('id-ID')` in the browser's
+timezone. The server stores UTC, so a rep's own 14:00 WIB entry would display as
+07:00 if formatted server-side — the minute is included because 14:03 and 14:58
+are different events when two reps are asked who was in the row.
+
+Rows that predate the migration have `NULL` for both columns. The grid says
+"belum tercatat (sebelum pencatatan update)" rather than showing a blank, so a
+missing value is never mistaken for "never updated".
+
+---
+
 ## Known limitations
 
 - **`successRate` is manual.** Nothing derives it from funnel position. A lead

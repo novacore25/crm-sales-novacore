@@ -310,6 +310,21 @@ export const oiForecasts = pgTable(
     isDeleted: boolean('is_deleted').default(false),
     createdAt: timestamp('created_at', { withTimezone: true }).defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow(),
+    /**
+     * Who last touched this row, and when.
+     *
+     * The forecast grid is a spreadsheet: sixteen editable cells per brand, and
+     * sales performance is read off these numbers. Knowing which rep changed
+     * what, and when down to the minute, is what makes a disputed figure
+     * traceable. `updated_at` alone only said that *something* changed at
+     * 14:32, not who.
+     *
+     * The name is denormalised alongside the id for the same reason
+     * funnel_history.by_user_name is: the row stays readable after the user is
+     * removed.
+     */
+    updatedBy: text('updated_by').references(() => users.id, { onDelete: 'set null' }),
+    updatedByName: text('updated_by_name'),
   },
   (t) => [
     index('oi_forecasts_lead_id_idx').on(t.leadId),

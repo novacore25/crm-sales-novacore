@@ -143,6 +143,14 @@ export interface IndividualTargetDTO {
   updatedAt: string;
 }
 
+/** One step in a lead's funnel trail, shown in the OI grid. */
+export interface OIMilestoneDTO {
+  stage: string;
+  by: string | null;
+  at: string | null;
+  note: string | null;
+}
+
 export interface OIForecastDTO {
   id: string;
   leadId: string;
@@ -173,10 +181,15 @@ export interface OIForecastDTO {
   picInvoice: string | null;
   isDeleted: boolean;
   createdAt: string;
-  updatedAt: string;
   latestStage: string | null;
   latestPic: string | null;
   latestStageDate: string | null;
+  /** Who last edited this row, and when - to the minute. */
+  updatedAt: string | null;
+  updatedBy: string | null;
+  updatedByName: string | null;
+  /** The full funnel trail for the lead behind this forecast. */
+  milestones: OIMilestoneDTO[];
 }
 
 export interface OITargetDTO {
