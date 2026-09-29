@@ -1,9 +1,9 @@
 "use client";
-import { useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import type { LeadDTO, OIForecastDTO, ProductOffered, UserProfile } from '@/types';
 import { createOIForecast, deleteOIForecast, setOIForecastStatus, updateOIForecastField } from '@/app/actions/forecast-actions';
 import { getLeadById } from '@/app/actions/lead-actions';
-import { Trash2, Plus, Search } from 'lucide-react';
+import { Trash2, Plus } from 'lucide-react';
 import { toast } from 'sonner';
 import CurrencyInput from '../common/CurrencyInput';
 import StatusModalClient from '../StatusModalClient';
@@ -68,6 +68,71 @@ export default function OIGrid({
   const [selectedLeadForStatus, setSelectedLeadForStatus] = useState<LeadDTO | null>(null);
   const [saving, setSaving] = useState(false);
 
+  /**
+   * Cell edits are debounced.
+   *
+   * Every editable cell fires on `onChange`, which for a text or number input
+   * means once per keystroke. Typing "15000000" into Value was eight UPDATE
+   * statements against Postgres, and a rep filling in a dozen brands turned
+   * into hundreds of round trips while typing.
+   *
+   * Each cell keeps its own timer keyed by `rowId:field`, so two cells edited
+   * in sequence both land - a single shared timer would have dropped the first.
+   * The local value is written immediately so the cell stays responsive; only
+   * the server call waits.
+   */
+  const timers = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
+  const pending = useRef<Record<string, { field: keyof OIForecastDTO; value: string | number }>>({});
+
+  useEffect(() => {
+    const inFlight = timers.current;
+    return () => {
+      Object.values(inFlight).forEach(clearTimeout);
+    };
+  }, []);
+
+  const flushCell = useCallback(
+    async (rowId: string, field: keyof OIForecastDTO, value: string | number) => {
+      const result = await updateOIForecastField({ id: rowId, field: String(field), value });
+      if (!result.success) {
+        toast.error('Gagal update: ' + (result.error ?? 'Tidak diizinkan'));
+        return;
+      }
+      // The optimistic local update already applied. The margin the server
+      // recomputed uses the same formula, so re-reading the whole table here
+      // would cost far more than it could correct - and would reintroduce the
+      // per-edit load this change exists to remove.
+    },
+    [],
+  );
+
+  const handleUpdate = useCallback(
+    (id: string, field: keyof OIForecastDTO, value: string | number) => {
+      const key = `${id}:${field}`;
+      pending.current[key] = { field, value };
+
+      // Optimistic local update so typing feels immediate.
+      const current = forecasts.find((f) => f.id === id);
+      const local: Partial<OIForecastDTO> = { [field]: value } as Partial<OIForecastDTO>;
+      if (current && (field === 'budgetAds' || field === 'budgetCreator' || field === 'value')) {
+        const val = field === 'value' ? Number(value) : current.value || 0;
+        const ads = field === 'budgetAds' ? Number(value) : current.budgetAds || 0;
+        const creator = field === 'budgetCreator' ? Number(value) : current.budgetCreator || 0;
+        local.grossMargin = Math.max(0, val - ads - creator);
+      }
+      onUpdateForecast(id, local);
+
+      clearTimeout(timers.current[key]);
+      timers.current[key] = setTimeout(() => {
+        const p = pending.current[key];
+        delete pending.current[key];
+        delete timers.current[key];
+        if (p) void flushCell(id, p.field, p.value);
+      }, 600);
+    },
+    [forecasts, flushCell, onUpdateForecast],
+  );
+
   // Sorting forecasts: Base Case (100-80), Realistic (79-50), Worst Case (<50)
   const sortedForecasts = [...forecasts].sort((a, b) => b.successRate - a.successRate);
 
@@ -81,12 +146,6 @@ export default function OIGrid({
       return;
     }
 
-    // Check if already exists
-    if (forecasts.some((f) => f.leadId === selectedLeadId)) {
-      toast.error('Brand ini sudah ada di forecast bulan ini produk ini.');
-      return;
-    }
-
     setSaving(true);
     try {
       // The seeded value and campaign number come from the lead's own deal
@@ -94,7 +153,18 @@ export default function OIGrid({
       // rather than shipping every lead to the browser up front.
       const lead = await getLeadById(selectedLeadId);
       const value = lead?.dealValue || 0;
-      const campaignNumber = (lead?.funnelHistory ?? []).filter((h) => h.stage === 'Close Win').length + 1;
+      const campaignNumber =
+        (lead?.funnelHistory ?? []).filter((h) => h.stage === 'Close Win').length + 1;
+
+      // MCN is a distinct product line, not a generic "Custom Campaign" - the
+      // old ternary lumped it in with the else branch, which mislabelled every
+      // MCN row in the Category column and in the milestone grouping.
+      const category =
+        activeTab === 'TNT'
+          ? 'TNT Campaign'
+          : activeTab === 'HYPE'
+            ? 'HYPE Campaign'
+            : 'MCN Campaign';
 
       const result = await createOIForecast({
         leadId: selectedLeadId,
@@ -104,16 +174,21 @@ export default function OIGrid({
         campaignNumber,
         budgetAds: 0,
         budgetCreator: 0,
-        category:
-          activeTab === 'TNT' ? 'TNT Campaign' : activeTab === 'HYPE' ? 'HYPE Campaign' : 'Custom Campaign',
+        category,
+        // 50 = "Realistic", matching the scenario the grid will show.
+        successRate: 50,
       });
 
       if (!result.success || !result.id) {
+        // The server rejects a duplicate authoritatively, so the message here
+        // is the same one the user would have got from the old client-side
+        // check - but it also fires when a colleague added the same brand.
         toast.error('Gagal menambah: ' + (result.error ?? 'Tidak diketahui'));
         return;
       }
 
       const now = new Date().toISOString();
+      const latest = lead?.funnelHistory?.[0];
       onAddForecast({
         id: result.id,
         leadId: selectedLeadId,
@@ -133,11 +208,10 @@ export default function OIGrid({
         targetVideoAffiliate: null,
         targetVideoInternal: null,
         targetViews: null,
-        successRate: 50, // default
+        successRate: 50,
         status: 'OPEN',
         tier: '-',
-        category:
-          activeTab === 'TNT' ? 'TNT Campaign' : activeTab === 'HYPE' ? 'HYPE Campaign' : 'Custom Campaign',
+        category,
         lastFollowUp: null,
         noteSales: null,
         dateQuotation: null,
@@ -147,9 +221,9 @@ export default function OIGrid({
         isDeleted: false,
         createdAt: now,
         updatedAt: now,
-        latestStage: lead?.funnelHistory?.[0]?.stage ?? null,
-        latestPic: lead?.funnelHistory?.[0]?.byUserName ?? null,
-        latestStageDate: lead?.funnelHistory?.[0]?.dateOccurred ?? null,
+        latestStage: latest?.stage ?? null,
+        latestPic: latest?.byUserName ?? null,
+        latestStageDate: latest?.dateOccurred ?? null,
       });
 
       toast.success('Berhasil ditambahkan ke Forecast');
@@ -161,39 +235,6 @@ export default function OIGrid({
       toast.error('Gagal menambah: Anda tidak memiliki akses');
     } finally {
       setSaving(false);
-    }
-  };
-
-  /**
-   * Edit one cell.
-   *
-   * `updateOIForecastField` whitelists the column server-side, so there is no
-   * column-name map here to get out of sync. The old map was missing
-   * `campaignNumber`, which meant the "Camp. Ke" cell wrote to a column that
-   * does not exist and silently did nothing.
-   */
-  const handleUpdate = async (id: string, field: keyof OIForecastDTO, value: string | number) => {
-    const current = forecasts.find((f) => f.id === id);
-    const mappedUpdates: Partial<OIForecastDTO> = { [field]: value } as Partial<OIForecastDTO>;
-
-    // Mirror the server's gross-margin derivation so the cell updates without
-    // waiting for the revalidated payload.
-    if (current && (field === 'budgetAds' || field === 'budgetCreator' || field === 'value')) {
-      const val = field === 'value' ? Number(value) : current.value || 0;
-      const ads = field === 'budgetAds' ? Number(value) : current.budgetAds || 0;
-      const creator = field === 'budgetCreator' ? Number(value) : current.budgetCreator || 0;
-      mappedUpdates.grossMargin = Math.max(0, val - ads - creator);
-    }
-
-    try {
-      const result = await updateOIForecastField({ id, field: String(field), value });
-      if (!result.success) {
-        toast.error('Gagal update: ' + (result.error ?? 'Tidak diizinkan'));
-        return;
-      }
-      onUpdateForecast(id, mappedUpdates);
-    } catch {
-      toast.error('Gagal update: Anda tidak memiliki akses');
     }
   };
 
@@ -632,26 +673,39 @@ export default function OIGrid({
           users={users}
           onClose={() => setSelectedLeadForStatus(null)}
           onSaved={async (newStatus, dealVal) => {
-            const fStatus =
-              newStatus === 'Close Win' ? 'WIN' : newStatus === 'Close Lost' || newStatus === 'Failed' ? 'LOSE' : 'OPEN';
+            // Only a closing stage concludes the deal. Anything else - Chated,
+            // Responsed, Set Meeting, Hold, Leads - means "still in play", which
+            // the forecast already records as OPEN. Treating a mid-pipeline
+            // save as OPEN is what previously reset the lead back to 'Leads'.
+            const isWin = newStatus === 'Close Win';
+            const isLose = newStatus === 'Close Lost' || newStatus === 'Failed';
+            const fStatus = isWin ? 'WIN' : isLose ? 'LOSE' : 'OPEN';
+
             const targetForecast = forecasts.find((f) => f.leadId === selectedLeadForStatus.id);
             if (!targetForecast) return;
 
-            const updates: Partial<OIForecastDTO> = { status: fStatus };
-
-            if (fStatus === 'WIN' && dealVal) {
-              updates.value = dealVal;
-              updates.grossMargin = dealVal - (targetForecast.budgetAds || 0) - (targetForecast.budgetCreator || 0);
+            // Saving a mid-pipeline stage must not disturb the forecast row at
+            // all: the lead moved, the forecast did not.
+            if (!isWin && !isLose && targetForecast.status === 'OPEN') {
+              setSelectedLeadForStatus(null);
+              return;
             }
 
-            // Forecast status, the parent lead's status/date/deal value, and the
-            // matching funnel row are all written in one transaction server
-            // side. The old code issued four separate requests, so a failure
-            // midway left the three tables disagreeing.
+            const updates: Partial<OIForecastDTO> = { status: fStatus };
+            if (isWin && dealVal) {
+              updates.value = dealVal;
+              updates.grossMargin = Math.max(
+                0,
+                dealVal - (targetForecast.budgetAds || 0) - (targetForecast.budgetCreator || 0),
+              );
+            }
+
+            // Forecast status, the parent lead's status/date/deal value and the
+            // matching funnel row are written in one transaction server-side.
             const result = await setOIForecastStatus({
               id: targetForecast.id,
               status: fStatus,
-              dealValue: fStatus === 'WIN' && dealVal ? dealVal : null,
+              dealValue: isWin && dealVal ? dealVal : null,
             });
 
             if (!result.success) {
@@ -659,7 +713,7 @@ export default function OIGrid({
               return;
             }
 
-            if (fStatus === 'WIN' && dealVal) {
+            if (isWin && dealVal) {
               const fieldResult = await updateOIForecastField({
                 id: targetForecast.id,
                 field: 'value',
@@ -672,6 +726,7 @@ export default function OIGrid({
             }
 
             onUpdateForecast(targetForecast.id, updates);
+            setSelectedLeadForStatus(null);
           }}
         />
       )}

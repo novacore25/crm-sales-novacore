@@ -6,6 +6,13 @@ interface OISummaryCardsProps {
   forecasts: OIForecastDTO[];
   target: number;
   activeTab: ProductOffered;
+  /**
+   * Whose numbers these are. The target is a company-wide figure, so when the
+   * grid is filtered to one rep, comparing that rep's WIN value against the
+   * full target would understate achievement by a factor of the headcount.
+   * Showing the scope makes that mismatch visible instead of silently wrong.
+   */
+  scope?: string;
 }
 
 const formatMoney = (amount: number) => {
@@ -17,7 +24,13 @@ const formatMoney = (amount: number) => {
   }).format(amount);
 };
 
-export default function OISummaryCards({ forecasts, target, activeTab }: OISummaryCardsProps) {
+export default function OISummaryCards({
+  forecasts,
+  target,
+  activeTab,
+  scope = 'tim',
+}: OISummaryCardsProps) {
+  const isTeamScope = scope === 'tim';
   const winForecasts = forecasts.filter(f => f.status === 'WIN');
   const openForecasts = forecasts.filter(f => f.status === 'OPEN');
   const loseForecasts = forecasts.filter(f => f.status === 'LOSE');
@@ -101,13 +114,24 @@ export default function OISummaryCards({ forecasts, target, activeTab }: OISumma
         <div className="absolute bottom-0 left-0 w-24 h-24 bg-emerald-500/10 rounded-full blur-2xl"></div>
         
         <div className="p-6 flex-1 flex flex-col relative z-10">
-          <div className="flex items-center gap-2 text-slate-400 mb-6">
-            <TrendingUp className="w-4 h-4" />
-            <span className="text-[10px] font-black uppercase tracking-widest">Global Target</span>
+          <div className="flex items-center justify-between gap-2 text-slate-400 mb-6">
+            <span className="flex items-center gap-2">
+              <TrendingUp className="w-4 h-4" />
+              <span className="text-[10px] font-black uppercase tracking-widest">
+                {isTeamScope ? 'Global Target' : 'Target TIM'}
+              </span>
+            </span>
+            {!isTeamScope && (
+              <span className="text-[10px] font-black uppercase tracking-widest text-amber-400/90 bg-amber-400/10 px-2 py-1 rounded">
+                {scope}
+              </span>
+            )}
           </div>
-          
+
           <div className="mb-6">
-            <p className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-1">Target Amount</p>
+            <p className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-1">
+              {isTeamScope ? 'Target Amount' : 'Pencapaian individu vs target tim'}
+            </p>
             <p className="text-2xl font-black text-white tracking-tight">{formatMoney(target)}</p>
           </div>
           

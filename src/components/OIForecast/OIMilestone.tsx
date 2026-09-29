@@ -17,6 +17,13 @@ interface OIMilestoneProps {
   selectedYear: number;
   setSelectedYear: (year: number) => void;
   onUpdateTarget: (target: OITargetDTO) => void;
+  /**
+   * The month the grid is on. The milestone table spans the whole selected
+   * year, but the header now says which month the rest of the page is looking
+   * at, so switching tabs does not look like the app lost track of where you
+   * were.
+   */
+  selectedMonthYear?: string;
 }
 
 const formatMoney = (amount: number) => {
@@ -60,6 +67,7 @@ export default function OIMilestone({
   selectedYear,
   setSelectedYear,
   onUpdateTarget,
+  selectedMonthYear,
 }: OIMilestoneProps) {
   const [dirtyTargets, setDirtyTargets] = useState<Record<string, number>>({});
   const [isSaving, setIsSaving] = useState(false);
@@ -152,6 +160,11 @@ export default function OIMilestone({
             </h2>
             <p className="text-xs font-bold text-slate-500 uppercase tracking-widest mt-1">
               Global Target Planning
+              {selectedMonthYear && (
+                <span className="ml-2 text-indigo-500 normal-case tracking-normal">
+                  · grid sedang di {selectedMonthYear}
+                </span>
+              )}
             </p>
           </div>
         </div>

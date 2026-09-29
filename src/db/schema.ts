@@ -314,6 +314,25 @@ export const oiForecasts = pgTable(
   (t) => [
     index('oi_forecasts_lead_id_idx').on(t.leadId),
     index('oi_forecasts_month_product_idx').on(t.monthYear, t.product),
+    /**
+     * A brand may be forecast once per month, per product, per campaign.
+     *
+     * The grid already refuses a duplicate, but that check only sees rows
+     * already in the browser. Two open tabs, or a lead added by a colleague in
+     * between, both pass it and produce a duplicate row - which then inflates
+     * the WIN totals and the milestone percentages. This makes the database the
+     * guarantee rather than the UI.
+     *
+     * COALESCE on campaign_number matters: a NULL campaign number would not
+     * compare equal to another NULL under a plain unique index, so duplicates
+     * with no campaign set would still slip through.
+     */
+    uniqueIndex('oi_forecasts_lead_month_product_campaign_key').on(
+      t.leadId,
+      t.monthYear,
+      t.product,
+      sql`coalesce(${t.campaignNumber}, 1)`,
+    ),
   ],
 );
 

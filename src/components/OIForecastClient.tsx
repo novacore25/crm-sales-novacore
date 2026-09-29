@@ -82,13 +82,26 @@ export default function OIForecastClient({
    */
   const getForecastPIC = (f: OIForecastDTO) => f.latestPic || 'Unknown';
 
-  const filteredForecasts = localForecasts.filter((f) => {
-    if (f.monthYear !== selectedMonthYear || f.product !== activeTab) return false;
-    if (selectedPIC !== 'All') {
-      return getForecastPIC(f) === selectedPIC;
-    }
-    return true;
-  });
+  /**
+   * Forecasts for the active month and product.
+   *
+   * The grid narrows this further by PIC; the milestone view uses it whole,
+   * because a milestone is a company-versus-target number and a per-rep target
+   * is a different question. The two views are labelled accordingly so the
+   * difference is not mistaken for an inconsistency.
+   */
+  const monthForecasts = useMemo(
+    () => localForecasts.filter((f) => f.monthYear === selectedMonthYear && f.product === activeTab),
+    [localForecasts, selectedMonthYear, activeTab],
+  );
+
+  const filteredForecasts = useMemo(
+    () =>
+      selectedPIC === 'All'
+        ? monthForecasts
+        : monthForecasts.filter((f) => getForecastPIC(f) === selectedPIC),
+    [monthForecasts, selectedPIC],
+  );
 
   const currentTarget = localTargets.find(
     (t) => t.monthYear === selectedMonthYear && t.product === activeTab,
@@ -226,6 +239,8 @@ export default function OIForecastClient({
                   forecasts={filteredForecasts}
                   target={currentTarget?.targetValue || 0}
                   activeTab={activeTab}
+                  /** Whether the numbers below are one rep's or the whole team's. */
+                  scope={selectedPIC === 'All' ? 'tim' : selectedPIC}
                 />
                 <OIGrid
                   forecasts={filteredForecasts}
@@ -250,6 +265,7 @@ export default function OIForecastClient({
                   selectedYear={selectedYear}
                   setSelectedYear={setSelectedYear}
                   onUpdateTarget={handleUpdateTarget}
+                  selectedMonthYear={selectedMonthYear}
                 />
               </div>
             )}
