@@ -1,0 +1,47 @@
+# Local development against the Coolify-managed database.
+#
+# The VPS database is NOT exposed to the internet, so this only works with a
+# Postgres you run locally. Use it to develop the UI without touching
+# production data.
+#
+#   docker compose up -d
+#   # then: cp .env.example .env  and point DATABASE_URL at the values below
+
+services:
+  postgres:
+    image: postgres:17-alpine
+    container_name: crm-sales-postgres-dev
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: db_sales_novacore
+      # Deterministic collation, matching the VPS instance.
+      POSTGRES_INITDB_ARGS: "--locale-provider=libc --locale=en_US.utf8"
+    ports:
+      - "5433:5432"
+    volumes:
+      - crm_sales_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d db_sales_novacore"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Optional one-shot runner for applying migrations:
+  #   docker compose run --rm migrate
+  migrate:
+    image: node:20-alpine
+    profiles: ["tools"]
+    working_dir: /app
+    volumes:
+      - .:/app
+    environment:
+      DATABASE_URL: postgresql://postgres:postgres@postgres:5432/db_sales_novacore
+    command: sh -c "npm ci && npm run db:push"
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+volumes:
+  crm_sales_pgdata:

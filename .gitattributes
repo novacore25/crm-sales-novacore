@@ -1,0 +1,20 @@
+# Normalise line endings on commit, check out with LF.
+#
+# Without this, git warns "LF will be replaced by CRLF" on nearly every file
+# and the noise obscures real diffs on a project this size.
+* text=auto eol=lf
+
+# Windows-only helper script: must stay CRLF to run under PowerShell.
+*.ps1 text eol=crlf
+
+# Generated migration snapshots
+drizzle/meta/*.json text eol=lf
+
+# Binary
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.woff binary
+*.woff2 binary
