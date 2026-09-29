@@ -5,21 +5,24 @@
 
 .DESCRIPTION
     The old repository's supabase/migrations/ folder is NOT a reliable source of
-    truth - it drifted from the production database (see docs/MIGRATION.md). This
-    script pulls the actual schema via pg_dump in a throwaway container, so no
-    local PostgreSQL install is needed.
+    truth - it drifted from the production database (see docs/MIGRATION.md).
+    This script pulls the actual schema via pg_dump in a throwaway container, so
+    no local PostgreSQL install is needed.
+
+    Connection details are read from .pgdump.env in this directory. That file is
+    gitignored and must never be committed.
 
     Requires Docker Desktop to be running.
 
 .EXAMPLE
     .\dump-supabase.ps1
-    .\dump-supabase.ps1 -OutFile .\supabase-schema-live.sql
 #>
 [CmdletBinding()]
 param(
     [string]$OutFile = ".\supabase-schema-live.sql",
+    [string]$EnvFile = ".\.pgdump.env",
     [string]$Schema  = "public",
-    # Empty array = every table. Pass e.g. -Tables leads,funnel_history to narrow it.
+    # Empty = every table. Pass e.g. -Tables leads,funnel_history to narrow it.
     [string[]]$Tables = @()
 )
 
@@ -32,99 +35,161 @@ function Fail($msg) {
     exit 1
 }
 
-# --- Docker ------------------------------------------------------------------
+function Ok($msg)  { Write-Host "  $msg" -ForegroundColor Green }
+function Info($msg) { Write-Host "  $msg" -ForegroundColor Cyan }
+function Warn($msg) { Write-Host "  $msg" -ForegroundColor Yellow }
+
+# --- 1. Docker ---------------------------------------------------------------
+Write-Host ""
+Info "Checking Docker..."
+
 if (-not (Get-Command docker -ErrorAction SilentlyContinue)) {
     Fail "Docker is not on PATH. Install Docker Desktop: https://docs.docker.com/get-docker/"
 }
 
-docker info --format "{{.ServerVersion}}" *> $null
-if ($LASTEXITCODE -ne 0) {
-    Fail "Docker is installed but the daemon is not responding. Start Docker Desktop and retry."
+# `docker info` writes its failure to stderr. With ErrorActionPreference = Stop
+# that surfaces as a raw PowerShell error dump before Fail() ever runs, so the
+# error action is lifted for this one call and the exit code checked instead.
+$prevEap = $ErrorActionPreference
+$ErrorActionPreference = 'Continue'
+docker info --format "{{.ServerVersion}}" 2>$null | Out-Null
+$dockerExit = $LASTEXITCODE
+$ErrorActionPreference = $prevEap
+
+if ($dockerExit -ne 0) {
+    Fail @"
+Docker is installed but the daemon is not responding.
+
+Start Docker Desktop and wait for it to finish booting, then run this again.
+"@
+}
+Ok "Docker is running."
+
+# --- 2. Connection details ----------------------------------------------------
+# Read from a KEY=VALUE file, ignoring comments and blank lines. Values may be
+# quoted; surrounding quotes are stripped.
+if (-not (Test-Path $EnvFile)) {
+    Fail @"
+Connection file not found: $EnvFile
+
+Create it by copying the template and filling in the four values:
+
+    Copy-Item .pgdump.env.example .pgdump.env
+    notepad .pgdump.env
+
+Then run this script again.
+"@
 }
 
-# --- Connection details ------------------------------------------------------
-# The connection string that was committed to the old repo's
-# scripts/add_pic_name_column.cjs. Kept here only as a fallback; prefer .env.
-$Host_ = $env:SUPABASE_DB_HOST
-$Port_ = if ($env:SUPABASE_DB_PORT) { $env:SUPABASE_DB_PORT } else { "5432" }
-$User_ = $env:SUPABASE_DB_USER
-$Pass_ = $env:SUPABASE_DB_PASSWORD
+$cfg = @{}
+foreach ($line in Get-Content $EnvFile) {
+    $t = $line.Trim()
+    if ($t -eq '' -or $t.StartsWith('#')) { continue }
+    $eq = $t.IndexOf('=')
+    if ($eq -lt 1) { continue }
+    $k = $t.Substring(0, $eq).Trim()
+    $v = $t.Substring($eq + 1).Trim()
+    if ($v.Length -ge 2 -and (($v[0] -eq '"' -and $v[-1] -eq '"') -or ($v[0] -eq "'" -and $v[-1] -eq "'"))) {
+        $v = $v.Substring(1, $v.Length - 2)
+    }
+    $cfg[$k] = $v
+}
 
-if (-not $Host_ -or -not $User_ -or -not $Pass_) {
-    Write-Host ""
-    Write-Host "  Supabase connection details not found." -ForegroundColor Yellow
-    Write-Host ""
-    Write-Host "  Set them as environment variables, then re-run:" -ForegroundColor Yellow
-    Write-Host ""
-    Write-Host "    `$env:SUPABASE_DB_HOST     = 'aws-0-ap-southeast-1.pooler.supabase.com'"
-    Write-Host "    `$env:SUPABASE_DB_USER     = 'postgres.<project-ref>'"
-    Write-Host "    `$env:SUPABASE_DB_PASSWORD = '<password>'"
-    Write-Host "    `$env:SUPABASE_DB_PORT     = '5432'   # direct, not the 6543 pooler"
-    Write-Host ""
-    Fail "Missing SUPABASE_DB_* environment variables."
+$Host_ = $cfg['SUPABASE_DB_HOST']
+$User_ = $cfg['SUPABASE_DB_USER']
+$Pass_ = $cfg['SUPABASE_DB_PASSWORD']
+$Port_ = if ($cfg.ContainsKey('SUPABASE_DB_PORT') -and $cfg['SUPABASE_DB_PORT']) { $cfg['SUPABASE_DB_PORT'] } else { '5432' }
+
+$missing = @()
+if (-not $Host_) { $missing += 'SUPABASE_DB_HOST' }
+if (-not $User_) { $missing += 'SUPABASE_DB_USER' }
+if (-not $Pass_) { $missing += 'SUPABASE_DB_PASSWORD' }
+if ($missing.Count -gt 0) {
+    Fail "Missing in ${EnvFile}: $($missing -join ', ')"
 }
 
 Write-Host ""
-Write-Host "  Dumping schema '$Schema' from $User_@$Host_`:$Port_" -ForegroundColor Cyan
+Info "Target : $User_@${Host_}:$Port_"
+Info "Schema : $Schema"
+Info "Output : $OutFile"
 Write-Host ""
 
-# Build the pg_dump argument list.
-$image    = "postgres:17-alpine"
-$outPath  = (Resolve-Path -Path (Split-Path -Parent $OutFile) -ErrorAction SilentlyContinue)
-if (-not $outPath) { $outPath = (Get-Location).Path }
+if ($Port_ -eq '6543') {
+    Warn "Port 6543 is Supabase's TRANSACTION-mode pooler."
+    Warn "pg_dump holds one long-lived connection, which that mode does not support."
+    Warn "Use 5432 (session mode) instead - see the template file."
+    Write-Host ""
+}
+
+# --- 3. Dump -----------------------------------------------------------------
+$outDir = Split-Path -Parent $OutFile
+if (-not $outDir) { $outDir = (Get-Location).Path }
+$outDir = (Resolve-Path $outDir).Path
 $fileName = Split-Path -Leaf $OutFile
-if (-not $fileName) { $fileName = "supabase-schema-live.sql" }
+if (-not $fileName) { $fileName = 'supabase-schema-live.sql' }
+
+Info "Running pg_dump (this takes a few seconds)..."
 
 $dumpArgs = @(
-    "run", "--rm",
-    "-e", "PGPASSWORD=$Pass_",
-    "-v", "${outPath}:/out",
-    $image,
-    "pg_dump",
-    "-h", $Host_,
-    "-p", $Port_,
-    "-U", $User_,
-    "-d", "postgres",
-    "--schema-only",
-    "--no-owner",
-    "--no-privileges",
-    "--schema", $Schema
+    'run', '--rm',
+    '-e', "PGPASSWORD=$Pass_",
+    '-v', "${outDir}:/out",
+    'postgres:17-alpine',
+    'pg_dump',
+    '-h', $Host_,
+    '-p', $Port_,
+    '-U', $User_,
+    '-d', 'postgres',
+    '--schema-only',
+    '--no-owner',
+    '--no-privileges',
+    '--schema', $Schema,
+    '-f', "/out/$fileName"
 )
-
-if ($Tables.Count -gt 0) {
-    foreach ($t in $Tables) { $dumpArgs += @("-t", $t) }
-}
-
-# pg_dump writes to stdout; redirect inside the container so PowerShell does not
-# mangle the encoding, then copy the file out.
-$dumpArgs += @("-f", "/out/$fileName")
+foreach ($t in $Tables) { $dumpArgs += @('-t', $t) }
 
 docker @dumpArgs
 if ($LASTEXITCODE -ne 0) {
-    Fail "pg_dump failed. Check the host, port (use 5432, not the 6543 pooler) and credentials."
+    Fail @"
+pg_dump failed.
+
+Most likely causes:
+  - Wrong password, or you have not rotated it yet
+  - Port 6543 (transaction pooler) instead of 5432 (session pooler)
+  - Your IP is not in the Supabase project's allowed IP list
+    (Dashboard -> Settings -> Database -> Connection -> Restrictions)
+"@
 }
 
-# --- Report ------------------------------------------------------------------
-$target = Join-Path $outPath $fileName
+# --- 4. Report ---------------------------------------------------------------
+$target = Join-Path $outDir $fileName
 if (-not (Test-Path $target)) { Fail "pg_dump reported success but $target was not created." }
 
-$size = [math]::Round((Get-Item $target).Length / 1KB, 1)
-$lines = (Get-Content $target | Measure-Object -Line).Lines
+$sizeKB = [math]::Round((Get-Item $target).Length / 1KB, 1)
+$lineCount = (Get-Content $target | Measure-Object -Line).Lines
 
 Write-Host ""
-Write-Host "  Done." -ForegroundColor Green
-Write-Host "    File  : $target"
-Write-Host "    Size  : $size KB ($lines lines)"
+Ok "Done."
+Info "File  : $target"
+Info "Size  : $sizeKB KB ($lineCount lines)"
 Write-Host ""
 
-# --- Quick sanity summary ----------------------------------------------------
-Write-Host "  Tables found:" -ForegroundColor Cyan
-Select-String -Path $target -Pattern 'CREATE TABLE "public"\."([^"]+)"' -AllMatches |
-    ForEach-Object { $_.Matches } |
-    ForEach-Object { $_.Groups[1].Value } |
-    Sort-Object -Unique |
-    ForEach-Object { "    - $_" }
+$tables = Select-String -Path $target -Pattern 'CREATE TABLE "public"\."([^"]+)"' -AllMatches |
+    ForEach-Object { $_.Matches } | ForEach-Object { $_.Groups[1].Value } | Sort-Object -Unique
 
-Write-Host ""
-Write-Host "  Next: send this file over so it can be diffed against src/db/schema.ts." -ForegroundColor Cyan
+if ($tables) {
+    Info "Tables found ($($tables.Count)):"
+    $tables | ForEach-Object { "      - $_" }
+    Write-Host ""
+}
+
+$funcs = Select-String -Path $target -Pattern 'CREATE (OR REPLACE )?FUNCTION "public"\."([^"]+)"' -AllMatches |
+    ForEach-Object { $_.Matches } | ForEach-Object { $_.Groups[2].Value } | Sort-Object -Unique
+if ($funcs) {
+    Info "Functions found ($($funcs.Count)):"
+    $funcs | ForEach-Object { "      - $_" }
+    Write-Host ""
+}
+
+Info "Next: send this file over so it can be diffed against src/db/schema.ts."
 Write-Host ""

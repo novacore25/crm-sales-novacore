@@ -34,6 +34,7 @@ yarn-error.log*
 .env
 .env.*
 !.env.example
+.pgdump.env
 
 # Coolify / local docker
 .vercel
