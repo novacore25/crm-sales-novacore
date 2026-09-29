@@ -15,7 +15,7 @@ import { getDashboardStats, getIndividualContributions, getGhostedLeads } from '
 import { getLeadsPage, getCategories } from '@/app/actions/lead-actions';
 import { Database, Send, ReplyAll, Handshake, Trophy, Filter, TrendingUp, Users, Target, Search, Phone, Info, Check, Clock, AlertTriangle, Square, CheckSquare } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { format, startOfMonth, endOfDay } from 'date-fns';
+import { format, startOfMonth } from 'date-fns';
 import { AnimatePresence, motion } from 'motion/react';
 import BulkStatusModal from './BulkStatusModal';
 import { useRouter } from 'next/navigation';
@@ -33,6 +33,7 @@ interface DashboardProps {
 
 const EMPTY_STATS: DashboardStatsDTO = {
   totalLeads: 0,
+  totalLeadsInScope: 0,
   totalChated: 0,
   totalResponsed: 0,
   totalSetMeeting: 0,
@@ -82,6 +83,72 @@ const historyTimestamp = (h: FunnelHistoryDTO) => {
 
 /** The legacy "ghosted" panel triggered at 14 days. Keep the same threshold. */
 const GHOSTED_MIN_DAYS = 14;
+
+/**
+ * The report timezone: WIB, fixed.
+ *
+ * Two bugs lived in the old date handling and both silently dropped data.
+ *
+ * `new Date('2026-09-29')` is parsed as UTC midnight, which is 07:00 in WIB. The
+ * old code then called `endOfDay()` on that instant, adding 23:59:59.999 of
+ * *browser-local* time to it. For a reader in WIB the range therefore ended at
+ * 16:59 UTC, throwing away the last seven hours of the closing day. Every
+ * evening entry was invisible until tomorrow.
+ *
+ * Worse, the two ends of the range were computed in different timezones while
+ * the comparison happened in UTC, so a reader who changed their machine's
+ * timezone saw a different dashboard.
+ *
+ * The window is now built as explicit calendar dates in WIB and formatted with
+ * a fixed offset, so "29 Sep" means 00:00 to 23:59:59.999 WIB regardless of
+ * where the reader is or what their device thinks the zone is.
+ */
+const REPORT_OFFSET_MIN = 7 * 60; // WIB is UTC+7, no DST
+
+/** `yyyy-MM-dd` for a date, read as calendar text rather than a UTC instant. */
+const calendarDay = (dStr: string): string => {
+  const trimmed = dStr.trim();
+  return /^\d{4}-\d{2}-\d{2}$/.test(trimmed) ? trimmed : '';
+};
+
+/**
+ * `2026-09-29` -> `29/09/2026` for display.
+ *
+ * Split on the string rather than parsing it, so the label always shows the day
+ * the user picked instead of a day shifted by a timezone conversion.
+ */
+const formatID = (dStr: string): string => {
+  const parts = calendarDay(dStr).split('-');
+  if (parts.length !== 3) return dStr;
+  return `${parts[2]}/${parts[1]}/${parts[0]}`;
+};
+
+/**
+ * Start of the given calendar day in WIB, as an ISO instant.
+ * `2026-09-01` + `start` -> `2026-08-31T17:00:00.000Z`, which is 00:00 WIB.
+ */
+const wibDayStartIso = (dStr: string): string | null => {
+  const day = calendarDay(dStr);
+  if (!day) return null;
+  const ms = Date.parse(`${day}T00:00:00.000Z`) - REPORT_OFFSET_MIN * 60_000;
+  return new Date(ms).toISOString();
+};
+
+/**
+ * End of the given calendar day in WIB, inclusive.
+ *
+ * The boundary is the last millisecond of the day, not midnight of the next
+ * one, so a `funnel_history` row written at 23:59:59.500 is still counted.
+ */
+const wibDayEndIso = (dStr: string): string | null => {
+  const day = calendarDay(dStr);
+  if (!day) return null;
+  const nextDay = new Date(Date.parse(`${day}T00:00:00.000Z`) + 86_400_000);
+  const nextDayText = nextDay.toISOString().slice(0, 10);
+  // Midnight WIB of the following day, minus 1ms.
+  const ms = Date.parse(`${nextDayText}T00:00:00.000Z`) - REPORT_OFFSET_MIN * 60_000 - 1;
+  return new Date(ms).toISOString();
+};
 
 export default function DashboardClient({
   stats: initialStats,
@@ -153,8 +220,11 @@ export default function DashboardClient({
       admin: filterAdmin,
       category: filterCategory,
       products: productList,
-      startDate: (!filterStart || !filterEnd) ? null : new Date(filterStart).toISOString(),
-      endDate: (!filterStart || !filterEnd) ? null : endOfDay(new Date(filterEnd)).toISOString(),
+      // Both bounds are calendar days in WIB, resolved to absolute instants.
+      // A half-set range is treated as "no range" so the UI can never send a
+      // start without an end and silently report a one-sided window.
+      startDate: (!filterStart || !filterEnd) ? null : wibDayStartIso(filterStart),
+      endDate: (!filterStart || !filterEnd) ? null : wibDayEndIso(filterEnd),
     };
 
     const run = async () => {
@@ -166,6 +236,10 @@ export default function DashboardClient({
           category: filterCategory,
           products: productList,
           minDays: GHOSTED_MIN_DAYS,
+          // Staleness is measured against "now" on purpose - a ghosted lead is
+          // one nobody has touched recently, whatever date range you happen to
+          // be looking at. Narrowing it to the selected window would hide
+          // exactly the leads that need chasing.
         }),
       ]);
       if (cancelled) return;
@@ -194,7 +268,9 @@ export default function DashboardClient({
     };
   }, [filterAdmin, filterCategory, productKey, filterStart, filterEnd, initialStats, initialContributions, initialGhosted, reloadToken]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // The pipeline table is a server-paginated page of leads.
+  // The pipeline table is a server-paginated page of leads. The funnel scope
+  // (PIC + date window) goes to the server, not the browser, so the rows, the
+  // count and the pager all describe the same set of leads.
   useEffect(() => {
     let cancelled = false;
     setTableLoading(true);
@@ -208,6 +284,9 @@ export default function DashboardClient({
         statusFilter: filterStatus,
         categoryFilter: filterCategory,
         productFilter: productList,
+        funnelAdmin: filterAdmin,
+        funnelStart: (!filterStart || !filterEnd) ? null : wibDayStartIso(filterStart),
+        funnelEnd: (!filterStart || !filterEnd) ? null : wibDayEndIso(filterEnd),
       });
       if (cancelled) return;
       setTableLeads(result.leads);
@@ -229,7 +308,7 @@ export default function DashboardClient({
     return () => {
       cancelled = true;
     };
-  }, [currentPage, search, filterStatus, filterCategory, productKey, reloadToken]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [currentPage, search, filterStatus, filterCategory, productKey, filterAdmin, filterStart, filterEnd, reloadToken]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const refresh = () => {
     setCurrentPage(1);
@@ -263,7 +342,13 @@ export default function DashboardClient({
 
   // The scorecards render the same eight aggregates the server computed.
   const scorecard = useMemo(() => ({
+    // All-time, on purpose: the lead pool is the denominator a funnel is
+    // measured against, and cutting it to the window would make the response
+    // rate describe only the leads that happened to arrive this month.
     total: stats.totalLeads,
+    // Leads the selected PIC actually worked in the window. This is the honest
+    // denominator for the rates below.
+    inScope: stats.totalLeadsInScope,
     chated: stats.totalChated,
     responsed: stats.totalResponsed,
     meeting: stats.totalSetMeeting,
@@ -273,33 +358,57 @@ export default function DashboardClient({
     revenue: stats.totalRevenue,
   }), [stats]);
 
+  /**
+   * Every rate is clamped to 100.
+   *
+   * They were not before, and the dashboard was showing INTEREST RATE 100.0%
+   * off a 26-of-26 split. The stages are counted independently from the lead's
+   * history, so a lead that responded in the window and set a meeting outside
+   * it makes `meeting > responsed` and the ratio exceeds 100. A conversion
+   * rate over 100% is not a success story, it is a broken funnel, and printing
+   * it as a number hides the fact that the team should look at how stages are
+   * being logged.
+   *
+   * `pct` returns an em-dash when the denominator is zero instead of "0%",
+   * because "0% of nothing responded" is a different statement from "no one
+   * was chated yet".
+   */
+  const pct = (num: number, den: number): string => {
+    if (!den) return '—';
+    return Math.min(100, (num / den) * 100).toFixed(1) + '%';
+  };
+
   const rates = useMemo(() => {
     return {
-      response: scorecard.chated ? ((scorecard.responsed / scorecard.chated) * 100).toFixed(1) + '%' : '0%',
-      interest: scorecard.responsed ? ((scorecard.meeting / scorecard.responsed) * 100).toFixed(1) + '%' : '0%',
-      conversion: scorecard.responsed ? ((scorecard.win / scorecard.responsed) * 100).toFixed(1) + '%' : '0%',
+      // Of the leads the PIC worked, how many were chatted.
+      response: pct(scorecard.chated, scorecard.inScope),
+      // Of the leads that responded, how many became a meeting.
+      interest: pct(scorecard.meeting, scorecard.responsed),
+      // Of the leads that responded, how many closed.
+      conversion: pct(scorecard.win, scorecard.responsed),
     };
   }, [scorecard]);
 
   /**
-   * PIC and date range narrow the funnel history, not the lead row, so they are
-   * applied to the page the server returned - the same scoping the old inner
-   * join produced.
+   * Rows shown in the pipeline table.
+   *
+   * The PIC and date filters used to be applied here, in the browser, to the
+   * page of 50 the server had already paginated. Two things broke at once:
+   *
+   *   - The page could come back holding 4 rows that match out of 50, so the
+   *     table showed "4 rows" where the pager said "Page 1 of 128". The
+   *     `totalFilteredLeads` driving that pager came from the server and knew
+   *     nothing about this filter, so the count and the contents disagreed.
+   *   - A page whose 50 rows were all filtered away rendered as an empty table
+   *     with a pager still offering 127 more pages, which reads as "no leads
+   *     match" when it actually means "none of these 50 match".
+   *
+   * `getLeadsPage` now receives the same funnel scope the analytics queries get,
+   * so the rows, the count and the pager all describe one set. `funnelHistory`
+   * is still filtered per lead so the stage chips on each row respect the
+   * window, but that no longer decides whether the row exists.
    */
-  const needsFunnelScope = filterAdmin !== 'ALL' || Boolean(filterStart && filterEnd);
-  const visibleLeads = useMemo(() => {
-    if (!needsFunnelScope) return tableLeads;
-    const rangeStart = filterStart ? parseDateString(filterStart) : 0;
-    const rangeEnd = filterEnd ? parseDateString(filterEnd) : Number.MAX_SAFE_INTEGER;
-    return tableLeads.filter(lead =>
-      lead.funnelHistory.some(h => {
-        if (filterAdmin !== 'ALL' && h.byUserName !== filterAdmin) return false;
-        if (!filterStart || !filterEnd) return true;
-        const t = parseDateString(h.dateOccurred);
-        return t >= rangeStart && t <= rangeEnd;
-      }),
-    );
-  }, [tableLeads, filterAdmin, filterStart, filterEnd, needsFunnelScope]);
+  const visibleLeads = useMemo(() => tableLeads, [tableLeads]);
 
   const stagnantAlerts = useMemo(() => {
     return ghosted
@@ -484,11 +593,45 @@ export default function DashboardClient({
 
       <div className="flex-1 overflow-auto p-4 md:p-8 space-y-6 md:space-y-8 custom-scrollbar">
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-          <StatCard label="TOTAL LEADS" value={scorecard.total} icon={<Database className="w-5 h-5" />} color="slate" />
+          <StatCard
+            label="TOTAL LEADS"
+            value={scorecard.total}
+            icon={<Database className="w-5 h-5" />}
+            color="slate"
+            // The one number on this page that ignores the date range, so it
+            // says so. A reader comparing it against CHATED OUT needs to know
+            // they are on different clocks.
+            note="Semua periode · tidak ikut filter tanggal"
+          />
           <StatCard label="CHATED OUT" value={scorecard.chated} icon={<Send className="w-5 h-5" />} color="indigo" />
           <StatCard label="RESPONSES" value={scorecard.responsed} icon={<ReplyAll className="w-5 h-5" />} color="purple" />
           <StatCard label="MEETINGS SET" value={scorecard.meeting} icon={<Handshake className="w-5 h-5" />} color="amber" />
         </div>
+
+        {/*
+          The funnel cards above are scoped to the selected PIC and date window,
+          but TOTAL LEADS is all-time. When those two disagree the reader has no
+          way to tell that the rate denominator is a third number, so the scope
+          is spelled out whenever the cards are actually filtered.
+        */}
+        {(filterAdmin !== 'ALL' || Boolean(filterStart && filterEnd)) && (
+          <p className="text-[11px] text-slate-400 -mt-2">
+            Chated, Responses, dan Meetings mengikuti filter di atas
+            {filterAdmin !== 'ALL' ? (
+              <>
+                {' '}
+                (PIC: <span className="font-bold text-slate-600">{filterAdmin}</span>)
+              </>
+            ) : null}
+            {filterStart && filterEnd ? (
+              <>
+                {' '}
+                ({formatID(filterStart)} &ndash; {formatID(filterEnd)})
+              </>
+            ) : null}
+            {' '}&mdash; total {scorecard.inScope} lead dihitung. Total Leads di atas tetap seluruh periode.
+          </p>
+        )}
 
 
 
@@ -562,18 +705,51 @@ export default function DashboardClient({
                 const adminRef = users.find(u => u.name === admin);
                 const personalTarget = adminRef ? individualTargets.find(it => it.userId === adminRef.uid && it.monthYear === currentTargetMonth) : null;
 
+                /**
+                 * Progress against a monthly target, prorated to the visible
+                 * window.
+                 *
+                 * Two things were wrong here.
+                 *
+                 * The old code divided chat and meeting targets by 4, silently.
+                 * Someone typed "80" as a monthly chat target and the bar
+                 * measured against 20. A hardcoded divisor with no label is not
+                 * a business rule, it is a number that happened to be there, and
+                 * it made every rep's bar wrong by a factor of four while
+                 * looking completely plausible.
+                 *
+                 * The old code also reported 100% for any activity above zero
+                 * when no target existed. A rep with one chat and no target at
+                 * all showed a full bar, which reads as "target met". It is not;
+                 * the target is simply unknown. Those cases now show 0 with the
+                 * "belum diset" label that was already next to them.
+                 */
                 if (filterStart && filterEnd) {
                   const tChat = personalTarget?.targetChat || 0;
                   const tMeet = personalTarget?.targetMeeting || 0;
                   const tRev = personalTarget?.targetRevenue || 0;
 
-                  pChat = tChat ? Math.min(100, (adminChat / Math.round(tChat / 4)) * 100) : (adminChat > 0 ? 100 : 0);
-                  pMeet = tMeet ? Math.min(100, (adminMeet / Math.round(tMeet / 4)) * 100) : (adminMeet > 0 ? 100 : 0);
-                  pRev = tRev ? Math.min(100, (adminRev / tRev) * 100) : (adminRev > 0 ? 100 : 0);
-                } else {
-                  pChat = adminChat > 0 ? 100 : 0;
-                  pMeet = adminMeet > 0 ? 100 : 0;
-                  pRev = adminRev > 0 ? 100 : 0;
+                  // Prorate a monthly target down to the number of days
+                  // actually being looked at, so a three-day view does not
+                  // measure against a full month.
+                  const spanDays = Math.max(
+                    1,
+                    Math.round(
+                      (parseDateString(filterEnd) - parseDateString(filterStart)) / 86_400_000,
+                    ) + 1,
+                  );
+                  const daysInMonth = new Date(
+                    Number(currentTargetMonth.slice(0, 4)),
+                    Number(currentTargetMonth.slice(5, 7)),
+                    0,
+                  ).getDate();
+                  const share = Math.min(1, spanDays / daysInMonth);
+
+                  const prorated = (monthly: number) => monthly * share;
+
+                  pChat = tChat ? Math.min(100, (adminChat / prorated(tChat)) * 100) : 0;
+                  pMeet = tMeet ? Math.min(100, (adminMeet / prorated(tMeet)) * 100) : 0;
+                  pRev = tRev ? Math.min(100, (adminRev / prorated(tRev)) * 100) : 0;
                 }
 
                 return (
@@ -700,13 +876,10 @@ export default function DashboardClient({
                 </thead>
                 <tbody className="divide-y divide-slate-50">
                   {visibleLeads.map((lead) => {
-                    // Filter the history down to the date range to find the appropriate "latest"
-                    const dateFilteredHistory = [...(lead.funnelHistory || [])].filter(h => {
-                      if (!filterStart || !filterEnd) return true;
-                      const hTime = parseDateString(h.dateOccurred);
-                      return hTime >= parseDateString(filterStart) && hTime <= parseDateString(filterEnd);
-                    });
-
+                    // `funnelHistory` already arrives scoped to the selected PIC
+                    // and date window - the server did the filtering, so the
+                    // browser does not re-apply a slightly different rule and
+                    // disagree with the row count.
                     const compareHistory = (a: FunnelHistoryDTO, b: FunnelHistoryDTO) => {
                       const timeA = parseDateString(a.dateOccurred);
                       const timeB = parseDateString(b.dateOccurred);
@@ -717,12 +890,14 @@ export default function DashboardClient({
                       return getStageRank(b.stage) - getStageRank(a.stage);
                     };
 
-                    const sortedFilteredHistory = dateFilteredHistory.sort(compareHistory);
+                    const sortedFilteredHistory = [...(lead.funnelHistory || [])].sort(compareHistory);
 
-                    // Global Latest logic MUST use the full history regardless of date filter to show true global status
-                    const sortedFullHistory = [...(lead.funnelHistory || [])].sort(compareHistory);
+                    // Where the lead really sits, ignoring both filters. The
+                    // server resolves this because the scoped history above
+                    // cannot answer it - deriving it client-side made "Status
+                    // Global" identical to "Status" by construction.
+                    const globalLatest = lead.latestGlobal ?? null;
 
-                    const globalLatest = sortedFullHistory[0];
                     let picLatest: FunnelHistoryDTO | null = null;
 
                     if (filterAdmin !== 'ALL') {
@@ -753,6 +928,14 @@ export default function DashboardClient({
                       return picLatest ? picLatest.dateOccurred : (sortedFilteredHistory[0]?.dateOccurred || lead.dateInput);
                     })();
                     const isOverriddenByOther = !!(filterAdmin !== 'ALL' && globalLatest && picLatest && globalLatest.byUserName !== filterAdmin && (historyTimestamp(globalLatest) || parseDateString(globalLatest.dateOccurred)) >= (historyTimestamp(picLatest) || parseDateString(picLatest.dateOccurred)));
+
+                    // The entry the displayed status actually came from.
+                    const displayLatest = filterStatus !== 'ALL'
+                      ? (sortedFilteredHistory.find(h => {
+                          if (filterAdmin !== 'ALL') return h.stage === filterStatus && h.byUserName === filterAdmin;
+                          return h.stage === filterStatus;
+                        }) ?? picLatest)
+                      : picLatest;
 
                     const isValidDate = !!displayDate && parseDateString(displayDate) > 0;
                     const formattedDate = isValidDate ? new Date(parseDateString(displayDate)).toLocaleDateString('id-ID', { year: 'numeric', month: 'short', day: 'numeric' }) : displayDate;
@@ -824,9 +1007,17 @@ export default function DashboardClient({
                             )}>
                               {displayStatus}
                             </span>
-                            {(filterAdmin === 'ALL' && globalLatest) && (
+                            {/*
+                              Attribute the stage to whoever recorded the entry
+                              the badge is actually showing. This used
+                              `globalLatest.byUserName`, which pairs a scoped
+                              status with an unscoped author - so a date-filtered
+                              row could read "Close Win" with a name that never
+                              made that entry.
+                            */}
+                            {filterAdmin === 'ALL' && displayLatest && (
                               <div className="text-[8px] font-bold text-indigo-400 whitespace-nowrap">
-                                by {globalLatest.byUserName}
+                                by {displayLatest.byUserName}
                               </div>
                             )}
                           </div>
@@ -908,10 +1099,18 @@ export default function DashboardClient({
               <AlertTriangle className="w-48 h-48" />
             </div>
             
-            <h4 className="text-sm font-black text-rose-700 uppercase tracking-widest mb-6 flex items-center gap-2 shrink-0 z-10">
+            <h4 className="text-sm font-black text-rose-700 uppercase tracking-widest mb-1 flex items-center gap-2 shrink-0 z-10">
               <div className="w-1.5 h-4 bg-rose-600 rounded-full"></div>
               Ghosted Lead Alert
             </h4>
+            {/* The threshold is 14 days, but the badge only fires at 30. Without
+                this the panel looked like it was alerting on 30+ when the real
+                trigger was two weeks, and a 20-day lead showed with no warning
+                colour at all. */}
+            <p className="text-[10px] text-slate-400 mb-4 shrink-0 z-10 leading-relaxed">
+              Lead terbuka tanpa progres lebih dari {GHOSTED_MIN_DAYS} hari. Merah mulai 30 hari.
+              {stagnantAlerts.length > 50 && ` Menampilkan 50 dari ${stagnantAlerts.length}.`}
+            </p>
 
             <div className="space-y-4 overflow-y-auto flex-1 pr-2 custom-scrollbar z-10">
               {stagnantAlerts.length === 0 ? (
@@ -1024,7 +1223,7 @@ function getStatusColor(status: LeadStatus) {
   }
 }
 
-function StatCard({ label, value, icon, color }: { label: string, value: number, icon: React.ReactNode, color: string }) {
+function StatCard({ label, value, icon, color, note }: { label: string, value: number, icon: React.ReactNode, color: string, note?: string }) {
   const colors: Record<string, string> = {
     slate: "text-slate-600 bg-slate-100 border-slate-200",
     indigo: "text-indigo-600 bg-indigo-50 border-indigo-100",
@@ -1041,6 +1240,9 @@ function StatCard({ label, value, icon, color }: { label: string, value: number,
         <span className="text-[10px] font-black text-slate-300 uppercase tracking-[0.2em]">{label}</span>
       </div>
       <h3 className="text-4xl font-black text-slate-900 tracking-tighter">{value}</h3>
+      {note && (
+        <p className="text-[10px] text-slate-400 mt-2 leading-relaxed">{note}</p>
+      )}
     </div>
   );
 }

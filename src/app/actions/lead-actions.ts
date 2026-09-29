@@ -1,6 +1,6 @@
 'use server';
 
-import { and, asc, desc, eq, inArray, or, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, gte, inArray, lte, or, sql } from 'drizzle-orm';
 import { revalidatePath } from 'next/cache';
 import { z } from 'zod';
 
@@ -35,6 +35,14 @@ export interface LeadRow {
   isDeleted: boolean;
   deletedAt: string | null;
   autoDeleteAt: string | null;
+  /**
+   * The lead's most recent funnel entry across every rep and every date.
+   * Null when the lead has no history at all.
+   *
+   * `funnelHistory` is scoped by the caller's PIC and date filters, so it cannot
+   * answer "where does this lead actually sit right now". This field can.
+   */
+  latestGlobal: FunnelHistoryRow | null;
   funnelHistory: FunnelHistoryRow[];
   notes: LeadNoteRow[];
 }
@@ -128,6 +136,12 @@ async function audit(params: {
  * first, then history and notes are fetched in two batched queries keyed by the
  * ids on that page - so row count is stable and the join fan-out is bounded by
  * the page size rather than the table size.
+ *
+ * `funnelAdmin` and the date window scope the *funnel history* attached to each
+ * row. They are applied as an EXISTS on the lead row rather than in the browser:
+ * filtering after pagination means the page returns 50 rows of which 4 survive,
+ * so the pager count and the visible rows describe different sets, and a page
+ * can come back entirely empty while the pager still offers more.
  */
 export async function getLeadsPage(params: {
   page?: number;
@@ -137,11 +151,18 @@ export async function getLeadsPage(params: {
   statusFilter?: string;
   categoryFilter?: string;
   productFilter?: string[];
+  funnelAdmin?: string;
+  funnelStart?: string | null;
+  funnelEnd?: string | null;
 }): Promise<{ leads: LeadRow[]; total: number }> {
   await requireUser();
 
   const page = Math.max(0, params.page ?? 0);
   const pageSize = Math.min(200, Math.max(1, params.pageSize ?? 50));
+
+  const funnelAdmin = params.funnelAdmin && params.funnelAdmin !== 'ALL' ? params.funnelAdmin : null;
+  const funnelStart = params.funnelStart ? new Date(params.funnelStart) : null;
+  const funnelEnd = params.funnelEnd ? new Date(params.funnelEnd) : null;
 
   const conditions = [];
   if (!params.includeDeleted) conditions.push(eq(leads.isDeleted, false));
@@ -155,6 +176,25 @@ export async function getLeadsPage(params: {
     conditions.push(
       sql`${leads.productOffered} && ${params.productFilter}::text[]`,
     );
+  }
+  if (funnelAdmin || funnelStart || funnelEnd) {
+    // The lead qualifies if anyone - or the selected PIC - moved it inside the
+    // window. `leads.pic_name` is included as an owner match so a lead handed
+    // to a rep and never re-touched still shows under that rep.
+    conditions.push(sql`
+      EXISTS (
+        SELECT 1 FROM funnel_history fh
+        WHERE fh.lead_id = ${leads.id}
+          AND (${funnelAdmin}::text IS NULL OR fh.by_user_name = ${funnelAdmin})
+          AND (${funnelStart}::timestamptz IS NULL OR fh.date_occurred >= ${funnelStart})
+          AND (${funnelEnd}::timestamptz IS NULL OR fh.date_occurred <= ${funnelEnd})
+      )
+      OR (
+        ${leads.picName}::text = ${funnelAdmin}::text
+        AND (${funnelStart}::timestamptz IS NULL OR ${leads.updatedAt} >= ${funnelStart})
+        AND (${funnelEnd}::timestamptz IS NULL OR ${leads.updatedAt} <= ${funnelEnd})
+      )
+    `);
   }
   if (params.search?.trim()) {
     const term = `%${params.search.trim()}%`;
@@ -183,11 +223,20 @@ export async function getLeadsPage(params: {
 
   const ids = rows.map((r) => r.id);
 
+  // The history attached to each row follows the same PIC + window scope the row
+  // selection used, so the stage chips on a lead describe the same period the
+  // row was included for. Notes are not scoped: they are commentary, not funnel
+  // movement, and hiding them would quietly remove context.
+  const historyConditions = [inArray(funnelHistory.leadId, ids)];
+  if (funnelAdmin) historyConditions.push(eq(funnelHistory.byUserName, funnelAdmin));
+  if (funnelStart) historyConditions.push(gte(funnelHistory.dateOccurred, funnelStart));
+  if (funnelEnd) historyConditions.push(lte(funnelHistory.dateOccurred, funnelEnd));
+
   const [historyRows, noteRows] = await Promise.all([
     db
       .select()
       .from(funnelHistory)
-      .where(inArray(funnelHistory.leadId, ids))
+      .where(and(...historyConditions))
       .orderBy(asc(funnelHistory.dateOccurred), asc(funnelHistory.createdAt)),
     db
       .select()
@@ -196,9 +245,38 @@ export async function getLeadsPage(params: {
       .orderBy(asc(leadNotes.createdAt)),
   ]);
 
+  // Unscoped latest per lead, for the dashboard's "Status Global" column.
+  // DISTINCT ON (lead_id) does the per-lead pick in one index walk rather than
+  // a round trip per lead.
+  const globalLatestRows = await db
+    .selectDistinctOn([funnelHistory.leadId])
+    .from(funnelHistory)
+    .where(inArray(funnelHistory.leadId, ids))
+    .orderBy(
+      asc(funnelHistory.leadId),
+      desc(funnelHistory.dateOccurred),
+      desc(funnelHistory.createdAt),
+    );
+
+  const globalLatestByLead = new Map<string, FunnelHistoryRow>();
+  for (const h of globalLatestRows) {
+    globalLatestByLead.set(h.leadId, {
+      id: h.id,
+      leadId: h.leadId,
+      stage: h.stage,
+      dateOccurred: iso(h.dateOccurred)!,
+      byUserName: h.byUserName,
+      byUserId: h.byUserId,
+      note: h.note,
+      assignedBy: h.assignedBy,
+      dealValue: h.dealValue === null ? null : num(h.dealValue),
+      campaignNumber: h.campaignNumber,
+      createdAt: iso(h.createdAt)!,
+    });
+  }
+
   const historyByLead = new Map<string, FunnelHistoryRow[]>();
-  for (const h of historyRows) {
-    const list = historyByLead.get(h.leadId) ?? [];
+  for (const h of historyRows) {    const list = historyByLead.get(h.leadId) ?? [];
     list.push({
       id: h.id,
       leadId: h.leadId,
@@ -258,6 +336,17 @@ export async function getLeadsPage(params: {
       deletedAt: iso(l.deletedAt),
       autoDeleteAt: iso(l.autoDeleteAt),
       funnelHistory: historyByLead.get(l.id) ?? [],
+      // The most recent funnel entry across EVERYONE, ignoring the PIC and date
+      // scope applied to `funnelHistory`.
+      //
+      // The dashboard's "Status Global" column exists to show where a lead
+      // really sits, next to where the selected rep last had it. Once the page
+      // started returning scoped history, that comparison was impossible - the
+      // client only had the filtered rows and silently fell back to the same
+      // value for both columns, so "Status Global" agreed with "Status" by
+      // construction. The unscoped latest is resolved here, one extra indexed
+      // query per page, so the two columns can actually differ.
+      latestGlobal: globalLatestByLead.get(l.id) ?? null,
       notes: notesByLead.get(l.id) ?? [],
     })),
   };
@@ -284,6 +373,20 @@ export async function getLeadById(id: string): Promise<LeadRow | null> {
       .orderBy(desc(leadNotes.createdAt)),
   ]);
 
+  const toHistory = (h: typeof historyRows[number]) => ({
+    id: h.id,
+    leadId: h.leadId,
+    stage: h.stage,
+    dateOccurred: iso(h.dateOccurred)!,
+    byUserName: h.byUserName,
+    byUserId: h.byUserId,
+    note: h.note,
+    assignedBy: h.assignedBy,
+    dealValue: h.dealValue === null ? null : num(h.dealValue),
+    campaignNumber: h.campaignNumber,
+    createdAt: iso(h.createdAt)!,
+  });
+
   return {
     id: lead.id,
     dateInput: lead.dateInput,
@@ -306,19 +409,10 @@ export async function getLeadById(id: string): Promise<LeadRow | null> {
     isDeleted: lead.isDeleted ?? false,
     deletedAt: iso(lead.deletedAt),
     autoDeleteAt: iso(lead.autoDeleteAt),
-    funnelHistory: historyRows.map((h) => ({
-      id: h.id,
-      leadId: h.leadId,
-      stage: h.stage,
-      dateOccurred: iso(h.dateOccurred)!,
-      byUserName: h.byUserName,
-      byUserId: h.byUserId,
-      note: h.note,
-      assignedBy: h.assignedBy,
-      dealValue: h.dealValue === null ? null : num(h.dealValue),
-      campaignNumber: h.campaignNumber,
-      createdAt: iso(h.createdAt)!,
-    })),
+    // The detail page returns unscoped history ordered newest-first, so the
+    // first row is already the lead's true latest.
+    latestGlobal: historyRows[0] ? toHistory(historyRows[0]) : null,
+    funnelHistory: historyRows.map(toHistory),
     notes: noteRows.map((n) => ({
       id: n.id,
       leadId: n.leadId,

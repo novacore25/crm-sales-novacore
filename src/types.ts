@@ -76,6 +76,14 @@ export interface LeadDTO {
   isDeleted: boolean;
   deletedAt: string | null;
   autoDeleteAt: string | null;
+  /**
+   * The lead's most recent funnel entry across every rep and every date.
+   * Null when the lead has no history at all.
+   *
+   * `funnelHistory` is scoped by the caller's PIC and date filters, so it cannot
+   * answer "where does this lead actually sit right now". This field can.
+   */
+  latestGlobal: FunnelHistoryDTO | null;
   funnelHistory: FunnelHistoryDTO[];
   notes: NoteDTO[];
 }
@@ -214,7 +222,10 @@ export interface EditRequestDTO {
 }
 
 export interface DashboardStatsDTO {
+  /** All active leads matching the category/product filters. Ignores the date range. */
   totalLeads: number;
+  /** Leads the selected PIC actually moved inside the date window. The rate denominator. */
+  totalLeadsInScope: number;
   totalChated: number;
   totalResponsed: number;
   totalSetMeeting: number;
