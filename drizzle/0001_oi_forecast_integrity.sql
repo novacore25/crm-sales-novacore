@@ -35,7 +35,11 @@ END $$;
 -- COALESCE(campaign_number, 1) matters: under a plain unique index two NULL
 -- campaign numbers do not compare equal, so rows with no campaign set would
 -- still be able to duplicate each other.
-CREATE UNIQUE INDEX "oi_forecasts_lead_month_product_campaign_key"
+--
+-- IF NOT EXISTS keeps this safe to re-run. The index may already have been
+-- applied out of band - by hand, or by a deploy that ran before this migration
+-- file existed - and a second attempt should be a no-op rather than an error.
+CREATE UNIQUE INDEX IF NOT EXISTS "oi_forecasts_lead_month_product_campaign_key"
   ON "oi_forecasts" USING btree (
     "lead_id",
     "month_year",
