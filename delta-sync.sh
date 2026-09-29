@@ -69,31 +69,11 @@ db() { docker exec -i "$DB_CONTAINER" psql -U postgres -d "$DB_NAME" -tAc "$1"; 
 sb() { docker run --rm -e PGPASSWORD="$SB_PASSWORD" postgres:17-alpine \
          psql -h "$SB_HOST" -p "$SB_PORT" -U "$SB_USER" -d postgres -tAc "$1"; }
 
-# Target column list, in the target's own declared order, excluding columns the
-# target generates itself.
-target_columns() {
-  db "SELECT string_agg(quote_ident(attname), ',' ORDER BY attnum)
-        FROM pg_attribute
-       WHERE attrelid = 'public.$1'::regclass
-         AND attnum > 0 AND NOT attisdropped
-         AND attname <> 'updated_at';"
-}
-
 primary_key() {
   db "SELECT a.attname FROM pg_index i
          JOIN pg_attribute a ON a.attrelid = i.indrelid AND a.attnum = ANY(i.indkey)
        WHERE i.indrelid = 'public.$1'::regclass AND i.indisprimary
        LIMIT 1;"
-}
-
-# Which of the target's columns does Supabase actually have? A column present
-# only on the target must not be selected from the source, and one present only
-# in the source is ignored - the preflight prints both so a schema drift is
-# visible instead of silent.
-source_columns() {
-  sb "SELECT string_agg(quote_ident(column_name), ',' ORDER BY ordinal_position)
-        FROM information_schema.columns
-       WHERE table_schema = 'public' AND table_name = '$1';"
 }
 
 export_rows() {  # t, column-list, ts-column
@@ -116,42 +96,80 @@ TABLES=(
 say "Cutoff: anything changed after $CUTOFF"
 
 # ---------------------------------------------------------------------------
-# Preflight. Schema drift is checked BEFORE anything is written, because the
-# previous version of this script found out about a column-order mismatch by
-# trying to insert an email into a uuid column.
+# Preflight.
+#
+# The target has columns Supabase never had, because we added them during the
+# migration: the Auth.js columns on users, `pic_name` on leads, and
+# `is_deleted` / `updated_by` / `updated_by_name` on oi_forecasts. Their absence
+# in the source is expected and is not schema drift.
+#
+# The earlier version treated ANY target-only column as a reason to abort, so it
+# refused to run on a database it had itself shaped. Genuine drift is the
+# opposite case: a column that exists in Supabase but not on the target, or the
+# same name with a different type. That is what silently corrupts a row.
 # ---------------------------------------------------------------------------
-say "Step 1  Column check (target order is authoritative)"
-DRIFT=0
+say "Step 1  Column check"
 declare -A COLS=()
 for spec in "${TABLES[@]}"; do
   t="${spec%%:*}"
-  tgt="$(target_columns "$t")"
-  src="$(source_columns "$t" || true)"
 
-  # Keep only columns the target declares AND the source actually has, in the
-  # TARGET's order. This is what makes the export and the load line up.
-  keep="$(db "SELECT string_agg(t.c, ',' ORDER BY t.ord)
-               FROM unnest(string_to_array('''$tgt''', ',')) WITH ORDINALITY AS t(c, ord)
-               JOIN unnest(string_to_array(COALESCE('''$src''',''), ',')) AS s(c)
-                 ON t.c = s.c;")"
-  COLS["$t"]="$keep"
+  # One column per line, target order preserved. Reading them as lines avoids
+  # the nested quoting that printed "created_at'" in the previous run.
+  mapfile -t tgt_cols < <(db "SELECT attname FROM pg_attribute
+                            WHERE attrelid = 'public.$t'::regclass
+                              AND attnum > 0 AND NOT attisdropped
+                              AND attname <> 'updated_at'
+                            ORDER BY attnum;")
+  mapfile -t src_cols < <(sb "SELECT column_name FROM information_schema.columns
+                             WHERE table_schema = 'public' AND table_name = '$t'
+                             ORDER BY ordinal_position;" || true)
 
-  n_tgt=$(printf '%s' "$tgt" | tr ',' '\n' | grep -c . || true)
-  n_keep=$(printf '%s' "$keep" | tr ',' '\n' | grep -c . || true)
-  if [ "$n_keep" = "$n_tgt" ]; then
-    printf '  %-16s %2s columns, all present in Supabase\n' "$t" "$n_keep"
-  else
-    warn "$t - $n_keep of $n_tgt columns exist in Supabase. Missing: $(db "SELECT coalesce(string_agg(t.c, ', '), '(none)') FROM unnest(string_to_array('''$tgt''',',')) WITH ORDINALITY AS t(c,ord) LEFT JOIN unnest(string_to_array(COALESCE('''$src''',''),',')) AS s(c) ON t.c = s.c WHERE s.c IS NULL;")"
-    DRIFT=1
+  # Shared columns, in TARGET order. This one list drives the export, the load
+  # and the insert, so the three cannot disagree with each other.
+  shared=()
+  for c in "${tgt_cols[@]}"; do
+    for s in "${src_cols[@]}"; do
+      [ "$c" = "$s" ] && { shared+=("$c"); break; }
+    done
+  done
+
+  # Columns Supabase has that the target does not. This is the real danger.
+  only_src=()
+  for s in "${src_cols[@]}"; do
+    found=0
+    for c in "${tgt_cols[@]}"; do [ "$c" = "$s" ] && { found=1; break; }; done
+    [ "$found" -eq 0 ] && only_src+=("$s")
+  done
+
+  if [ "${#shared[@]}" -eq 0 ]; then
+    err "$t - no columns in common, refusing to continue."
+    exit 1
   fi
-done
+  if [ "${#only_src[@]}" -gt 0 ]; then
+    err "$t - in Supabase but not on the target: ${only_src[*]}"
+    err "     Merging would silently drop them. Stopping."
+    exit 1
+  fi
 
-if [ "$DRIFT" -eq 1 ]; then
-  say "Schema drift detected - stopping before any write."
-  echo "  The columns listed above exist on the VPS but not in Supabase."
-  echo "  Re-run this once someone confirms the source is not mid-migration."
-  exit 1
-fi
+  # Target-only columns: not exported, not loaded, and left at their default by
+  # the insert. `updated_by` on oi_forecasts lands here, which is correct: a row
+  # that came from Supabase genuinely has no VPS-side editor.
+  only_tgt=()
+  for c in "${tgt_cols[@]}"; do
+    keep=0
+    for s in "${shared[@]}"; do [ "$c" = "$s" ] && { keep=1; break; }; done
+    [ "$keep" -eq 0 ] && only_tgt+=("$c")
+  done
+
+  # Quoted for SQL. These are identifiers, never literals.
+  COLS["$t"]=$(printf '%s\n' "${shared[@]}" | sed 's/.*/"&"/' | paste -sd, -)
+
+  printf '  %-16s %2d shared' "$t" "${#shared[@]}"
+  if [ "${#only_tgt[@]}" -gt 0 ]; then
+    printf ', %d kept at default: %s' "${#only_tgt[@]}" "${only_tgt[*]}"
+  fi
+  printf '\n'
+done
 
 # ---------------------------------------------------------------------------
 # Count. This is the number worth checking before writing.
@@ -161,6 +179,18 @@ declare -A EXPECTED=()
 total_delta=0
 for spec in "${TABLES[@]}"; do
   t="${spec%%:*}"; col="${spec##*:}"
+
+  # The timestamp column has to exist in the SOURCE or the count query errors.
+  # `created_at` was reported missing on users and leads in the previous run -
+  # which is why this checks rather than assuming.
+  if [ "$(sb "SELECT count(*) FROM information_schema.columns
+                WHERE table_schema='public' AND table_name='$t'
+                  AND column_name='$col';" || echo 0)" = "0" ]; then
+    warn "$t - Supabase has no $col, cannot detect changes. Skipped."
+    EXPECTED["$t"]=0
+    continue
+  fi
+
   n=$(sb "SELECT count(*) FROM public.$t WHERE $col > '$CUTOFF';")
   EXPECTED["$t"]="$n"
   total_delta=$((total_delta + n))
@@ -208,6 +238,8 @@ for spec in "${TABLES[@]}"; do
   cat > "$sql" <<SQL
 BEGIN;
 CREATE TEMP TABLE stg (LIKE public.$t INCLUDING ALL);
+-- Same column list as the export, named on both sides. The staging table has
+-- every target column, so SELECT * would fail on the ones the source lacks.
 \copy stg ($collist) FROM STDIN WITH (FORMAT csv, HEADER true)
 $(cat "$csv")
 \.
@@ -225,7 +257,10 @@ BEGIN
   RAISE NOTICE 'RESULT new=%, updated=%', staged - existing, existing;
   EXECUTE format('DELETE FROM public.%I WHERE %I = ANY(SELECT %I FROM stg)',
                  '$t', '$pk', '$pk');
-  EXECUTE 'INSERT INTO public.' || quote_ident('$t') || ' SELECT * FROM stg';
+  -- Named columns only. Anything the source does not have keeps its default,
+  -- which is the right outcome for updated_by: a row that came from Supabase
+  -- genuinely has no VPS-side editor.
+  EXECUTE 'INSERT INTO public.' || quote_ident('$t') || ' ($collist) SELECT $collist FROM stg';
 END
 \$\$;
 COMMIT;
