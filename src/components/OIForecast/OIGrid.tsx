@@ -51,27 +51,48 @@ const formatIDDate = (dateString: string) => {
 };
 
 /**
- * Timestamps down to the minute, in the reader's own timezone.
+ * Every timestamp in the grid is rendered in WIB, pinned explicitly.
  *
- * toLocaleString is used rather than a hand-built format because the server
- * stores UTC while the team reads in WIB: an entry written at 07:00 UTC is 14:00
- * for the rep who made it, and showing 07:00 would make their own work look
- * like it happened in the middle of the night. The minute matters too — when
- * two reps are asked who touched a number, 14:03 and 14:58 are different
- * events.
+ * The alternative - formatting in the reader's own timezone - looks more
+ * "correct" and is actually worse for a dispute. The server stores UTC, so a
+ * rep's 14:00 WIB entry renders as 07:00 server-side, which makes their own work
+ * look like it happened in the middle of the night. Pinning to Asia/Jakarta
+ * fixes that while still showing one number to everyone.
+ *
+ * Pinning also beats relying on the browser default: a rep travelling abroad or
+ * with a misconfigured device would otherwise see a *different* clock for the
+ * same event, which is the exact confusion the attribution row exists to
+ * remove. One zone, one answer, for the whole team.
+ *
+ * The minute is included because 14:03 and 14:58 are different events when two
+ * people are asked who was in the row.
  */
+const WIB = 'Asia/Jakarta';
+
+const longMoment = new Intl.DateTimeFormat('id-ID', {
+  day: '2-digit',
+  month: 'short',
+  year: 'numeric',
+  hour: '2-digit',
+  minute: '2-digit',
+  hour12: false,
+  timeZone: WIB,
+});
+
+const shortMoment = new Intl.DateTimeFormat('id-ID', {
+  day: '2-digit',
+  month: 'short',
+  hour: '2-digit',
+  minute: '2-digit',
+  hour12: false,
+  timeZone: WIB,
+});
+
 function formatMoment(iso: string | null | undefined): string {
   if (!iso) return '-';
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return '-';
-  return new Intl.DateTimeFormat('id-ID', {
-    day: '2-digit',
-    month: 'short',
-    year: 'numeric',
-    hour: '2-digit',
-    minute: '2-digit',
-    hour12: false,
-  }).format(d);
+  return `${longMoment.format(d)} WIB`;
 }
 
 /** Compact form for milestone chips, where horizontal space is scarce. */
@@ -79,13 +100,7 @@ function formatShortMoment(iso: string | null | undefined): string {
   if (!iso) return '-';
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return '-';
-  return new Intl.DateTimeFormat('id-ID', {
-    day: '2-digit',
-    month: 'short',
-    hour: '2-digit',
-    minute: '2-digit',
-    hour12: false,
-  }).format(d);
+  return shortMoment.format(d);
 }
 
 /**
