@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # =============================================================================
-# migrate.sh  ???  Supabase  ???  db_sales_novacore, on the VPS
+# migrate.sh  --  Supabase  ->  db_sales_novacore, on the VPS
 # =============================================================================
 # ONE script, ONE run. It does everything, in this order:
 #
@@ -75,7 +75,7 @@ ENUM_COLUMNS=(
 )
 
 printf "\n\033[1m=============================================================="
-printf "\n Supabase  ???  %s/%s\033[0m\n" "$DB_CONTAINER" "$DB_NAME"
+printf "\\n Supabase  ->  %s/%s\033[0m\n" "$DB_CONTAINER" "$DB_NAME"
 [ "$DRY_RUN" -eq 1 ] && printf " MODE: DRY RUN - only the plan is shown"
 printf "==============================================================\n\033[0m"
 
@@ -89,8 +89,26 @@ docker ps --format '{{.Names}}' | grep -qx "$DB_CONTAINER" \
   || { bad "no running container named '$DB_CONTAINER'"; info "find it:  docker ps --format '{{.Names}}' | grep -i postgres"; exit 1; }
 ok "target container found"
 
-[ "$(sb 'SELECT 1;')" = "1" ] \
-  || { bad "cannot reach Supabase at ${SB_HOST}:${SB_PORT}"; info "check the password, and that the port is 5432 (session pooler), not 6543"; exit 1; }
+info "host  : $SB_HOST:$SB_PORT"
+info "user  : $SB_USER"
+# Try once, capture the real error, then decide. The bare `[ "$(sb ...)" ]` form
+# swallowed psql's message, so a wrong password and a wrong port looked
+# identical and unexplained.
+sb_err="$WORK/sb.err"
+if ! docker run --rm -e PGPASSWORD="$SB_PASS" postgres:17-alpine \
+     psql -h "$SB_HOST" -p "$SB_PORT" -U "$SB_USER" -d postgres -tAc "SELECT 1;" \
+     >/dev/null 2>"$sb_err"; then
+  bad "cannot reach Supabase at ${SB_HOST}:${SB_PORT}"
+  info "psql said:"
+  sed 's/^/        /' "$sb_err" | head -5
+  echo
+  info "most likely:"
+  info "  - SB_USER is missing the 'postgres.' prefix."
+  info "    It must be:  postgres.$(printf '%s' "$SB_USER" | sed 's/^postgres\.//')"
+  info "  - port should be 5432 (session pooler), not 6543 (transaction pooler)"
+  info "  - SB_PASS wrong, or the password has been rotated since you copied it"
+  exit 1
+fi
 ok "supabase is reachable (read-only from here on)"
 
 existing=$(db "SELECT count(*) FROM information_schema.tables WHERE table_schema='public';")
@@ -137,7 +155,7 @@ ok "${#ENUM_COLUMNS[@]} columns relaxed"
 say "Step 3  Copying data from Supabase"
 # =============================================================================
 # --column-inserts names the source columns explicitly, so the columns this
-# project adds (pic_name, assigned_to_name, ???) are simply not mentioned and
+# project adds (pic_name, assigned_to_name, etc) are simply not mentioned and
 # keep their defaults. The app fills them in on write.
 for t in "${TABLES[@]}"; do
   src=$(sb "SELECT count(*) FROM public.$t;")
