@@ -185,7 +185,7 @@ CREATE TABLE "tasks" (
 --> statement-breakpoint
 CREATE TABLE "users" (
 	"id" text PRIMARY KEY NOT NULL,
-	"auth_id" text,
+	"auth_id" uuid,
 	"email" text NOT NULL,
 	"name" text NOT NULL,
 	"email_verified" timestamp with time zone,

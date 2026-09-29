@@ -9,6 +9,7 @@ import {
   pgTable,
   text,
   timestamp,
+  uuid,
   uniqueIndex,
 } from 'drizzle-orm/pg-core';
 
@@ -44,7 +45,16 @@ export const users = pgTable(
      * Supabase Auth UUID. Superseded by the Auth.js `account` table; kept
      * populated during the transition so the legacy lookup path still works.
      */
-    authId: text('auth_id'),
+    /**
+     * Supabase Auth UUID.
+     *
+     * No longer written - Auth.js tracks provider identity in the `accounts`
+     * table - but retained so the value survives the migration rather than
+     * being discarded, and kept as `uuid` to match the source column exactly.
+     * Declaring it `text` would make pg_dump emit `'...'::uuid` into a text
+     * column on restore.
+     */
+    authId: uuid('auth_id'),
     email: text('email').notNull().unique(),
     name: text('name').notNull(),
     /** Required by the Auth.js Drizzle adapter. Google verifies the email. */
