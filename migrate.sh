@@ -52,7 +52,11 @@ bad()  { printf "  \033[0;31mSTOP\033[0m  %s\n" "$*"; }
 info() { printf "        %s\n" "$*"; }
 
 # psql inside the target container. Local socket, so no password needed.
-db() { docker exec -i "$DB_CONTAINER" psql -U postgres -d "$DB_NAME" -tAc "$1" 2>/dev/null || echo "ERR"; }
+# stderr is captured rather than discarded, so a failure can be explained
+# instead of surfacing as a bare "ERR" - which is what happened when the
+# database name turned out to be wrong.
+DB_ERR="$WORK/db.err"
+db() { docker exec -i "$DB_CONTAINER" psql -U postgres -d "$DB_NAME" -tAc "$1" 2>"$DB_ERR" || echo "ERR"; }
 # psql against Supabase, read-only.
 sb() { docker run --rm -e PGPASSWORD="$SB_PASS" postgres:17-alpine \
         psql -h "$SB_HOST" -p "$SB_PORT" -U "$SB_USER" -d postgres -tAc "$1" 2>/dev/null || echo "ERR"; }
@@ -112,6 +116,20 @@ fi
 ok "supabase is reachable (read-only from here on)"
 
 existing=$(db "SELECT count(*) FROM information_schema.tables WHERE table_schema='public';")
+if [ "$existing" = "ERR" ]; then
+  bad "cannot query ${DB_NAME} inside the container"
+  info "psql said:"
+  sed 's/^/        /' "$DB_ERR" | head -4
+  echo
+  info "databases that actually exist in this container:"
+  docker exec -i "$DB_CONTAINER" psql -U postgres -tAc \
+    "SELECT '        ' || datname FROM pg_database WHERE datistemplate = false ORDER BY 1;" 2>/dev/null \
+    | sed 's/^        //' || info "  (could not list them either - is the container a Postgres at all?)"
+  echo
+  info "if the name above is different, re-run with:"
+  info "  export DB_NAME='<the name shown above>'"
+  exit 1
+fi
 [ "$existing" = "0" ] \
   || { bad "${DB_NAME} already has ${existing} table(s)."; info "this script is only for an empty database."; exit 1; }
 ok "target database is empty"
