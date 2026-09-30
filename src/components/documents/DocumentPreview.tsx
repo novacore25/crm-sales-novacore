@@ -198,7 +198,19 @@ function Letterhead({
 }) {
   return (
     <div
+      className="relative"
       style={{
+        /*
+         * Full bleed, and it has to be done here rather than by the caller.
+         *
+         * The sheet gives the header 14mm of side padding for the body text. A
+         * 210mm-wide background centred inside the 182mm that padding leaves is
+         * clipped 14mm off on each side, and CSS clips a background to its
+         * element - so the artwork came out inset from both trim edges: the HYPE
+         * letterhead stopped short of the paper, and TNT's title band and footer
+         * bar did too. Every one of those is drawn to run off the edge.
+         */
+        margin: '0 -14mm',
         height,
         backgroundImage: `url(${src})`,
         backgroundSize: '210mm 297mm',
@@ -360,19 +372,7 @@ function TntTemplate({ doc }: { doc: PreviewDoc }) {
          at 33.2-45.9mm. This has to match the Letterhead height below or the
          print spacer is short and the body starts underneath the fixed header. */
       headerHeight="46mm"
-      header={
-        /*
-         * The wrapper is pulled out to the page's own edges. The sheet gives the
-         * header 14mm of side padding for the body text, and the mark's offsets
-         * are measured from the trim edge, so without this it landed 14mm too far
-         * right and sat on top of the wordmark. The background inside is already
-         * full-bleed; this makes the overlay agree with it.
-         */
-        <div className="relative" style={{ margin: '0 -14mm' }}>
-          <Letterhead src={tntArt} height="46mm" edge="top" />
-          <TntMark />
-        </div>
-      }
+      header={<Letterhead src={tntArt} height="46mm" edge="top" logo={<TntMark />} />}
       footer={<Letterhead src={tntArt} height="28.3mm" edge="bottom" />}
     >
       {/* No title band here. The word QUOTATION or INVOICE is part of the
