@@ -6,6 +6,7 @@ import { db } from '@/db';
 import { auditLogs, documentItems, documentSeries, documents } from '@/db/schema';
 import { requireLord, requireUser } from '@/lib/auth';
 import { z } from 'zod';
+import { computeTotals } from '@/lib/document-totals';
 
 /**
  * Write an audit entry.
@@ -46,13 +47,6 @@ export interface DocumentItemInput {
   price: number;
 }
 
-export interface DocumentTotals {
-  subtotal: number;
-  taxRate: number | null;
-  taxAmount: number;
-  grandTotal: number;
-}
-
 export interface DocumentListRow {
   id: string;
   seriesId: string;
@@ -88,34 +82,10 @@ export interface DocumentListRow {
 // ---------------------------------------------------------------------------
 // Totals
 // ---------------------------------------------------------------------------
-
-/**
- * Subtotal, tax and grand total.
- *
- * The tax RATE is typed by the user and the arithmetic is done here. That split
- * is deliberate: the TNT sample has `PPN 11%` struck through with a different
- * figure in its place, and HYPE quotes 0,5%, so the rate is a human decision
- * that changes. The multiplication is not, and getting it wrong on a document
- * that carries a real bank account is not an acceptable failure mode.
- */
-export function computeTotals(
-  items: Pick<DocumentItemInput, 'price'>[],
-  taxRate: number | null,
-): DocumentTotals {
-  const subtotal = items.reduce((sum, i) => sum + (Number(i.price) || 0), 0);
-  const rate = taxRate === null || Number.isNaN(taxRate) ? 0 : taxRate;
-  const taxAmount = (subtotal * rate) / 100;
-  return {
-    subtotal: round2(subtotal),
-    taxRate,
-    taxAmount: round2(taxAmount),
-    // Below a cent the extra precision is noise, and a document whose printed
-    // total disagrees with the one the client can add up loses the argument.
-    grandTotal: round2(subtotal + taxAmount),
-  };
-}
-
-const round2 = (n: number) => Math.round((n + Number.EPSILON) * 100) / 100;
+// computeTotals lives in @/lib/document-totals. A file marked 'use server' may
+// only export async functions, and this is a pure calculation the client-side
+// form needs for its live preview - it has to run in both places, from one
+// definition, or the preview and the stored document drift apart.
 
 // ---------------------------------------------------------------------------
 // Schemas
