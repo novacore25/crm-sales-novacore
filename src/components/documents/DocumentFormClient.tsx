@@ -285,7 +285,13 @@ export default function DocumentFormClient({ seed }: { seed?: DocumentFormSeed }
     () => ({
       company: current?.company ?? 'TNT',
       docType: current?.docType ?? 'INVOICE',
-      number: null,
+      /*
+       * This was hardcoded null, which was right when a draft held no number and
+       * the number was only assigned at publishing. Now the form composes the
+       * number itself, so the preview was still showing a dash on a document
+       * whose number was sitting right above it in the composer.
+       */
+      number,
       clientName,
       issueDate,
       period,
@@ -312,7 +318,7 @@ export default function DocumentFormClient({ seed }: { seed?: DocumentFormSeed }
       signatoryTitle,
     }),
     [
-      current, clientName, issueDate, period, items, totals,
+      current, number, clientName, issueDate, period, items, totals,
       taxRate, taxLabel, terms, approverName, bankName,
       bankAccountName, bankAccountNumber, bankBranch, signatoryName, signatoryTitle,
     ],
@@ -632,6 +638,44 @@ export default function DocumentFormClient({ seed }: { seed?: DocumentFormSeed }
             <h2 className="text-[10px] font-black uppercase tracking-widest text-slate-400">
               Pajak &amp; Ketentuan
             </h2>
+            {/*
+             * Two of these cannot appear on a HYPE document at all, and leaving
+             * them on screen is worse than hiding them: the office fills them in,
+             * saves, and nothing prints.
+             *
+             * The HYPE layout, taken from their own quotation and invoice, has no
+             * terms block and no "Approve by" line on the right. TNT uses both, so
+             * they are gated on the company rather than on anything else.
+             *
+             * The tax RATE is not one of them. HYPE does print a rate - its table
+             * header reads "Grand Total (Include Tax 0,5%)" - so only the label is
+             * company-specific, and an earlier pass here hid the rate as well,
+             * which would have silently dropped the tax off every HYPE invoice.
+             */}
+            {current?.company === 'HYPE' ? (
+              <>
+                <label className="block">
+                  <span className="text-[10px] font-black uppercase tracking-widest text-slate-400">
+                    Tarif (%)
+                  </span>
+                  <input
+                    type="number"
+                    min="0"
+                    step="0.001"
+                    value={taxRate}
+                    onChange={(e) => setTaxRate(e.target.value)}
+                    placeholder="0,5"
+                    className="mt-1 w-full px-3 py-2 border border-slate-200 rounded-lg text-xs font-black text-slate-800 tabular-nums outline-none focus:ring-2 focus:ring-indigo-500"
+                  />
+                </label>
+                <p className="text-[10px] text-slate-400 leading-relaxed">
+                  Tersimpan otomatis di baris &quot;Grand Total (Include Tax …)&quot;.
+                  Dokumen HYPE tidak punya label pajak maupun ketentuan tertulis, jadi
+                  field itu muncul kalau jenis dokumen diganti ke TNT.
+                </p>
+              </>
+            ) : (
+              <>
             <div className="grid grid-cols-2 gap-3">
               <label className="block">
                 <span className="text-[10px] font-black uppercase tracking-widest text-slate-400">
@@ -661,9 +705,9 @@ export default function DocumentFormClient({ seed }: { seed?: DocumentFormSeed }
               </label>
             </div>
             <p className="text-[10px] text-slate-400 leading-relaxed">
-              Kosongkan kalau dokumen ini tidak menampilkan pajak. Quotation HYPE dan
-              sebagian invoice TNT tidak menampilkannya. Persentase diisi manual karena
-              aturannya belum seragam antar perusahaan.
+              Kosongkan kalau dokumen ini tidak menampilkan pajak. Quotation TNT juga
+              tidak menampilkannya. Persentase diisi manual karena aturannya belum
+              seragam antar perusahaan.
             </p>
 
             <label className="block">
@@ -678,6 +722,8 @@ export default function DocumentFormClient({ seed }: { seed?: DocumentFormSeed }
                 className="mt-1 w-full px-3 py-2 border border-slate-200 rounded-lg text-[11px] text-slate-600 outline-none focus:ring-2 focus:ring-indigo-500 leading-relaxed resize-y"
               />
             </label>
+              </>
+            )}
           </div>
 
           {/* bank + signature */}
@@ -792,18 +838,23 @@ export default function DocumentFormClient({ seed }: { seed?: DocumentFormSeed }
               </label>
             </div>
 
-            <label className="block">
-              <span className="text-[10px] font-black uppercase tracking-widest text-slate-400">
-                Disetujui oleh (nama klien)
-              </span>
-              <input
-                type="text"
-                value={approverName}
-                onChange={(e) => setApproverName(e.target.value)}
-                placeholder="Nama orang di pihak klien"
-                className="mt-1 w-full px-3 py-2 border border-slate-200 rounded-lg text-xs font-bold text-slate-700 outline-none focus:ring-2 focus:ring-indigo-500"
-              />
-            </label>
+            {/* TNT prints an "Approve by" line on the right; HYPE does not have
+                one anywhere in its layout, so the field is hidden there rather
+                than left to be filled in and silently dropped. */}
+            {current?.company !== 'HYPE' && (
+              <label className="block">
+                <span className="text-[10px] font-black uppercase tracking-widest text-slate-400">
+                  Disetujui oleh (nama klien)
+                </span>
+                <input
+                  type="text"
+                  value={approverName}
+                  onChange={(e) => setApproverName(e.target.value)}
+                  placeholder="Nama orang di pihak klien"
+                  className="mt-1 w-full px-3 py-2 border border-slate-200 rounded-lg text-xs font-bold text-slate-700 outline-none focus:ring-2 focus:ring-indigo-500"
+                />
+              </label>
+            )}
           </div>
         </div>
 
