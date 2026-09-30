@@ -142,12 +142,83 @@ function Terms({ text }: { text: string | null | undefined }) {
 // ---------------------------------------------------------------------------
 
 /**
+ * The office's own letterhead artwork.
+ *
+ * The files in public/documents are the real thing, exported from their own
+ * design: a full A4 page whose body area is empty and whose header band and
+ * footer bar are drawn in. They are placed as a background scaled to the whole
+ * page and cropped by the height of the element, so the header shows the top of
+ * the page and the footer the bottom of it. Measuring where the ink actually
+ * sits gave these numbers:
+ *
+ *   TNT logo            9.2 - 25.5mm
+ *   TNT title band     33.2 - 45.9mm   so the header is 46mm tall
+ *   TNT footer bar    268.3 - 296.6mm   so the footer is 28.3mm and runs to the trim edge
+ *   HYPE letterhead     0.0 - 44.1mm
+ *
+ * Nothing about the shapes is described in CSS any more, which is the point. The
+ * previous hand-built versions were measured off a 4x render of these same files
+ * and still got the ribbon's notch, the lime and the band's position wrong.
+ *
+ * One consequence worth knowing: the artwork is a background image, so Chrome's
+ * print dialog must have "Background graphics" enabled or the letterhead does
+ * not print at all. That was already true of the coloured bands before, but now
+ * it is the whole header rather than a decorative stripe, and the print page
+ * says so on the toolbar.
+ *
+ * KNOWN ISSUE in the TNT artwork, not fixable from here: Chromium's PDF output
+ * draws a hairline rectangle around the TNT logo. It is not visible on screen and
+ * it is not caused by the way the file is placed here - printing the raw SVG on
+ * its own, untouched, produces the same line. The logo is masked by applying a
+ * greyscale image as a luminance mask, and the mask's edge lands within a pixel
+ * of the logo's own bounding box, so the anti-aliased edge survives as a visible
+ * outline once the page is rasterised for print.
+ *
+ * Three attempts were made and all failed to remove it without changing how the
+ * logo looks: explicit mask bounds, mask-type="luminance", and switching from a
+ * CSS background to an <img>. Removing the mask entirely does clear the line, but
+ * it leaves the logo on a black rectangle, because the mask is what knocks out
+ * the image's background. It needs fixing at the source: re-export the logo from
+ * the design tool as a placed image with the transparency already applied, rather
+ * than masked.
+ *
+ * The HYPE letterhead uses a pattern fill rather than a mask and prints clean.
+ */
+function Letterhead({
+  src,
+  height,
+  edge,
+}: {
+  src: string;
+  height: string;
+  edge: 'top' | 'bottom';
+}) {
+  return (
+    <div
+      style={{
+        height,
+        backgroundImage: `url(${src})`,
+        backgroundSize: '210mm 297mm',
+        backgroundRepeat: 'no-repeat',
+        backgroundPosition: edge === 'top' ? 'top center' : 'bottom center',
+      }}
+    />
+  );
+}
+
+/**
  * The A4 sheet both templates render into.
  *
- * `print:fixed` on the header and footer is what makes them repeat on page two
- * and beyond. The top and bottom padding is applied in both modes on purpose:
- * if it only applied in print, the preview would look right and the printout
- * would shift the content up under the header.
+ * The header and footer repeat on every printed page through `print:fixed`,
+ * which is how Chrome runs them. On screen the header is `sticky` so the company
+ * identity stays visible while scrolling a long document, and the footer is left
+ * to the flex layout so it lands on the page's bottom edge - `sticky bottom-0`
+ * resolves against the preview pane rather than the page, and pulled the footer
+ * 105mm up the sheet.
+ *
+ * The top and bottom spacing is applied in both modes on purpose: if it only
+ * applied in print, the preview would look right and the printout would shift
+ * the content up under the header.
  */
 function Sheet({
   header,
@@ -167,15 +238,19 @@ function Sheet({
   headerHeight: string;
 }) {
   /*
-   * The page top margin is applied in both media, not just print.
+   * No top margin.
    *
-   * Most printers cannot print to the trim edge, so the printed sheet needs a
-   * margin. Applying it only under `print:` meant the preview and the printout
-   * disagreed about where the document began, which is the one thing a preview
-   * has to be right about. Six millimetres is inside what an office printer can
-   * reach.
+   * There was a 6mm one, for the usual reason that printers cannot print to the
+   * trim edge. But the letterhead is artwork designed to bleed: the HYPE ribbon
+   * starts at y=0 and the TNT logo sits at 9.2mm. A margin does not move the
+   * artwork safely, it leaves a white strip above a black shape that was drawn
+   * to run off the edge, which looks like a mistake rather than a margin. The
+   * office's own PDFs also start at y=0.
+   *
+   * A printer that clips the first few millimetres will shave the top of the
+   * HYPE ribbon. That is a property of the printer, not of the file.
    */
-  const topMargin = '6mm';
+  const topMargin = '0mm';
   /*
    * In print the header is position:fixed so it repeats on every page, and fixed
    * takes it out of the flow - the body then starts at the very top of the sheet
@@ -227,56 +302,29 @@ function Sheet({
 // Thick and Thin
 // ---------------------------------------------------------------------------
 
-const MAROON = '#5C2430';
 const MAROON_TEXT = 'text-[#5C2430]';
 
 function TntTemplate({ doc }: { doc: PreviewDoc }) {
-  const isInvoice = doc.docType === 'INVOICE';
+  // Two letterheads because the title band is part of the artwork: one says
+  // QUOTATION, the other INVOICE. Picking the wrong one would print a document
+  // headed INVOICE that the archive lists as a quotation.
+  const tntArt = doc.docType === 'INVOICE' ? '/documents/tnt-invoice.svg' : '/documents/tnt-quotation.svg';
 
   return (
     <Sheet
-      headerSpace="32mm"
+      headerSpace="6mm"
       footerSpace="18mm"
-      headerHeight="11mm"
-      header={
-        <div className="flex items-center gap-2.5">
-          <div className="w-9 h-9 rounded-lg bg-gradient-to-br from-amber-300 to-amber-500 flex items-center justify-center shrink-0">
-            <span className="text-white text-lg font-black">T</span>
-          </div>
-          <div className="leading-none">
-            {/* The wordmark needs a real space. JSX drops whitespace between an
-                element and an inline sibling, which rendered it as
-                "Thickand Thin". */}
-            <div className="text-[17px] font-black tracking-tight text-slate-900">
-              Thick<span className="font-light">&nbsp;and Thin</span>
-            </div>
-            <div className="text-[9px] text-slate-500 mt-0.5">Media Indonesia</div>
-          </div>
-        </div>
-      }
-      footer={
-        /* Full-bleed: the bar runs off both trim edges and sits on the bottom of
-           the sheet, as on the paper. The negative margin cancels the page
-           gutter applied by the sheet. */
-        <div style={{ background: MAROON }} className="-mx-[14mm] flex items-center gap-2 px-[14mm] py-2.5 text-white">
-          <div className="h-0.5 flex-1 bg-amber-400" />
-          <span className="text-[7.5px] font-bold">tntkreatif.com</span>
-          <div className="h-0.5 w-14 bg-amber-400" />
-          <span className="text-[7.5px] font-bold">Thick and Thin Media</span>
-          <div className="h-0.5 flex-1 bg-amber-400" />
-        </div>
-      }
+      /* The letterhead crop is 46mm tall: logo at 9.2-25.5mm and the title band
+         at 33.2-45.9mm. This has to match the Letterhead height below or the
+         print spacer is short and the body starts underneath the fixed header. */
+      headerHeight="46mm"
+      header={<Letterhead src={tntArt} height="46mm" edge="top" />}
+      footer={<Letterhead src={tntArt} height="28.3mm" edge="bottom" />}
     >
-      {/* Title band. Full-bleed, like the paper - it butts against both trim
-          edges, which is most of what makes it read as a letterhead rather than
-          a shaded heading. */}
-      <div className="-mx-[14mm] flex items-stretch mb-5 print:break-after-avoid">
-        <div className="flex-1" style={{ background: MAROON }} />
-        <div className="px-7 py-2 text-[26px] font-black tracking-tight text-slate-900">
-          {isInvoice ? 'INVOICE' : 'QUOTATION'}
-        </div>
-        <div className="flex-1" style={{ background: MAROON }} />
-      </div>
+      {/* No title band here. The word QUOTATION or INVOICE is part of the
+          letterhead artwork, which is why there are two TNT files and the right
+          one is chosen by document type. Drawing it again in CSS put a second
+          band under the real one. */}
 
       {/* to / date / number */}
       <div className="mb-4 flex items-start justify-between gap-6 print:break-after-avoid">
@@ -431,29 +479,26 @@ function TntTemplate({ doc }: { doc: PreviewDoc }) {
 // ---------------------------------------------------------------------------
 // HYPE
 // ---------------------------------------------------------------------------
+/** Measured off the office's own PDFs, and now off the letterhead artwork. */
 const LIME = '#C3E800';
 
 /**
- * HYPE. Rebuilt from measurements taken off the office's own PDFs rather than
- * from how it looked in a thumbnail, which is how the previous version ended up
- * wrong in five ways at once.
+ * HYPE. The letterhead and the footer furniture are the office's own artwork.
+ * The body was rebuilt from measurements taken off their PDFs rather than from
+ * how it looked in a thumbnail, which is how the previous version ended up wrong
+ * in five ways at once.
  *
  * What the PDFs actually say, and what this now does:
  *
- * - The lime is #C3E800. It had been #D4FF00, guessed.
- * - The letterhead is a black ribbon with a notched right edge overlapping a
- *   lime band that runs to the right edge, with the address BELOW the band on
- *   white. The address had been put inside the lime block, which is not where it
- *   is on the paper.
  * - The table columns are not the same on the two document types. A quotation
  *   gives the Total column 42% and Details 30%; an invoice gives Details 48% and
  *   Total 21%, because its header is "Grand Total (Include Tax 0,5%)" on two
  *   lines. One set of widths cannot be right for both.
  * - The body cells are centred and generously padded. They were left-aligned and
  *   tight.
- * - There is no footer and no "Approve by" block. Both were invented. The paper
- *   has the company name and the signatory at the bottom left, unsigned and
- *   un-underlined, and nothing else.
+ * - There is no footer bar and no "Approve by" block. Both had been invented. The
+ *   paper has the company name and the signatory at the bottom left, unsigned
+ *   and un-underlined, and nothing else.
  *
  * The quotation prints its date in capitals ("11 SEPTEMBER 2026") and the
  * invoice does not ("15 Juni 2026"). That inconsistency is in the office's own
@@ -472,52 +517,11 @@ function HypeTemplate({ doc }: { doc: PreviewDoc }) {
       headerSpace="8mm"
       /* Reserves room so long content never runs under the fixed footer. */
       footerSpace="67mm"
-      headerHeight="42mm"
-      header={
-        <div className="relative" style={{ margin: '0 -14mm', height: '42mm' }}>
-          {/* The lime band runs from a quarter of the way across to the right
-              trim edge, and only 13.7mm deep. */}
-          <div
-            className="absolute top-0"
-            style={{ left: '26.4%', right: 0, height: '13.7mm', background: LIME }}
-          />
-          {/* The black ribbon: full height on the left, with a notch cut out of
-              its right edge below the band. clip-path because the notch is the
-              whole identity of the letterhead and a border cannot make it. */}
-          <div
-            className="absolute top-0 left-0 z-10"
-            style={{
-              width: '39.1%',
-              height: '42mm',
-              background: '#000',
-              clipPath: 'polygon(0 0, 64% 0, 100% 30%, 64% 100%, 0 100%)',
-            }}
-          />
-          <span
-            className="absolute z-20 font-black tracking-tight"
-            style={{ left: '4.9%', top: '15mm', fontSize: '26px', color: LIME }}
-          >
-            HYPE
-          </span>
-
-          {/* The address sits on white, right-aligned, below the band and to the
-              right of the ribbon. */}
-          <div
-            className="absolute text-right leading-[1.32] text-slate-900"
-            style={{ right: '5%', top: '17.2mm', fontSize: '11pt' }}
-          >
-            Ruko Dynasty Walk Alam Sutera No 16, Jl. Jalur Sutera Raya
-            <br />
-            Kav 29C No 16, Pakualam, Kec. Serpong Utara, Tangerang
-            <br />
-            Selatan, Banten 15320
-            <div className="mt-[13pt]">
-              hyprojectt@gmail.com
-              <br />+62 857-7411-2604
-            </div>
-          </div>
-        </div>
-      }
+      headerHeight="44.1mm"
+      /* The real letterhead: the black ribbon with its notch, the lime band and
+         the address, exactly as drawn. The hand-built version was measured from
+         a render of this same file and still got the notch and the lime wrong. */
+      header={<Letterhead src="/documents/hype-header.svg" height="44.1mm" edge="top" />}
       footer={
         /* Not a footer bar. On the paper this is simply the last thing on the
            page: the company name, a gap, then the signatory - unsigned, no
