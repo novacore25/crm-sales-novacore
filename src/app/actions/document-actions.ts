@@ -3,7 +3,14 @@
 import { and, asc, desc, eq, ilike, or, sql } from 'drizzle-orm';
 
 import { db } from '@/db';
-import { auditLogs, documentItems, documentSeries, documents } from '@/db/schema';
+import {
+  auditLogs,
+  documentBankAccounts,
+  documentItems,
+  documentSeries,
+  documentSignatories,
+  documents,
+} from '@/db/schema';
 import { requireLord, requireUser } from '@/lib/auth';
 import { z } from 'zod';
 import { computeTotals } from '@/lib/document-totals';
@@ -131,6 +138,128 @@ export async function getDocumentSeries() {
     .where(eq(documentSeries.isActive, true))
     .orderBy(asc(documentSeries.company), asc(documentSeries.docType));
   return rows;
+}
+
+// ---------------------------------------------------------------------------
+// Reusable values: bank accounts and signatories
+// ---------------------------------------------------------------------------
+
+/**
+ * Bank accounts for one company, most used first.
+ *
+ * Company-scoped, and strictly. TNT pays from PT TNT KREATIF DIGITAL AL and
+ * HYPE from PT SYNERA KREATIF GRUP; a shared list would let a HYPE invoice
+ * print the TNT account and nothing would notice, because both the name and
+ * the number are individually valid.
+ */
+export async function getBankAccounts(company: string) {
+  await requireUser();
+  const rows = await db
+    .select()
+    .from(documentBankAccounts)
+    .where(and(eq(documentBankAccounts.company, company as never), eq(documentBankAccounts.isActive, true)))
+    .orderBy(desc(documentBankAccounts.useCount), desc(documentBankAccounts.lastUsedAt), asc(documentBankAccounts.accountName));
+  return rows;
+}
+
+/** Signatories for one company, most used first. */
+export async function getSignatories(company: string) {
+  await requireUser();
+  const rows = await db
+    .select()
+    .from(documentSignatories)
+    .where(and(eq(documentSignatories.company, company as never), eq(documentSignatories.isActive, true)))
+    .orderBy(desc(documentSignatories.useCount), desc(documentSignatories.lastUsedAt), asc(documentSignatories.name));
+  return rows;
+}
+
+/**
+ * Record that a bank account and a signatory were used, creating them if new.
+ *
+ * The office changes these a couple of times a year, so a settings screen would
+ * be the wrong place - it would not be opened, and the value would be retyped
+ * every time. Instead the list learns: anything that does not match an existing
+ * row is saved on the way past, and anything that does only gets its use count
+ * bumped so it sorts to the top next time.
+ *
+ * Runs on draft save, not on issue, so a half-finished test document does not
+ * pollute the list with values nobody will ever print.
+ */
+async function rememberUsedValues(params: {
+  company: string;
+  bank?: { bankName?: string | null; accountName?: string | null; accountNumber?: string | null; branch?: string | null };
+  signatory?: { name?: string | null; title?: string | null };
+}): Promise<void> {
+  const company = params.company as 'TNT' | 'HYPE';
+  const now = new Date();
+
+  if (params.bank?.accountName?.trim()) {
+    const key = (params.bank.accountNumber ?? '').trim();
+    const existing = await db
+      .select({ id: documentBankAccounts.id })
+      .from(documentBankAccounts)
+      .where(
+        and(
+          eq(documentBankAccounts.company, company),
+          sql`upper(coalesce(${documentBankAccounts.accountNumber}, '')) = upper(${key})`,
+        ),
+      )
+      .limit(1);
+
+    if (existing[0]) {
+      await db
+        .update(documentBankAccounts)
+        .set({ useCount: sql`${documentBankAccounts.useCount} + 1`, lastUsedAt: now })
+        .where(eq(documentBankAccounts.id, existing[0].id));
+    } else {
+      await db
+        .insert(documentBankAccounts)
+        .values({
+          id: crypto.randomUUID(),
+          company,
+          bankName: params.bank.bankName?.trim() || null,
+          accountName: params.bank.accountName.trim(),
+          accountNumber: key || null,
+          branch: params.bank.branch?.trim() || null,
+          useCount: 1,
+          lastUsedAt: now,
+        })
+        .onConflictDoNothing();
+    }
+  }
+
+  if (params.signatory?.name?.trim()) {
+    const name = params.signatory.name.trim();
+    const existing = await db
+      .select({ id: documentSignatories.id })
+      .from(documentSignatories)
+      .where(
+        and(
+          eq(documentSignatories.company, company),
+          sql`upper(${documentSignatories.name}) = upper(${name})`,
+        ),
+      )
+      .limit(1);
+
+    if (existing[0]) {
+      await db
+        .update(documentSignatories)
+        .set({ useCount: sql`${documentSignatories.useCount} + 1`, lastUsedAt: now })
+        .where(eq(documentSignatories.id, existing[0].id));
+    } else {
+      await db
+        .insert(documentSignatories)
+        .values({
+          id: crypto.randomUUID(),
+          company,
+          name,
+          title: params.signatory.title?.trim() || null,
+          useCount: 1,
+          lastUsedAt: now,
+        })
+        .onConflictDoNothing();
+    }
+  }
 }
 
 /**
@@ -299,7 +428,6 @@ export async function createDocument(
 
   const totals = computeTotals(data.items, data.taxRate ?? null);
   const id = crypto.randomUUID();
-  const shortType = series.docType === 'QUOTATION' ? 'QUO' : 'INV';
 
   await db.insert(documents).values({
     id,
@@ -341,6 +469,17 @@ export async function createDocument(
       price: String(item.price),
     })),
   );
+
+  await rememberUsedValues({
+    company: series.company,
+    bank: {
+      bankName: data.bankName,
+      accountName: data.bankAccountName,
+      accountNumber: data.bankAccountNumber,
+      branch: data.bankBranch,
+    },
+    signatory: { name: data.signatoryName, title: data.signatoryTitle },
+  });
 
   return { success: true, id };
 }
@@ -419,6 +558,27 @@ export async function updateDocument(
       })),
     );
   });
+
+  // Learn the bank account and signatory, after the transaction has committed.
+  // A failure here must not roll back a document the user already saved.
+  const seriesRows = await db
+    .select({ company: documentSeries.company })
+    .from(documentSeries)
+    .where(eq(documentSeries.id, doc.seriesId))
+    .limit(1);
+
+  if (seriesRows[0]) {
+    await rememberUsedValues({
+      company: seriesRows[0].company,
+      bank: {
+        bankName: data.bankName,
+        accountName: data.bankAccountName,
+        accountNumber: data.bankAccountNumber,
+        branch: data.bankBranch,
+      },
+      signatory: { name: data.signatoryName, title: data.signatoryTitle },
+    });
+  }
 
   return { success: true };
 }

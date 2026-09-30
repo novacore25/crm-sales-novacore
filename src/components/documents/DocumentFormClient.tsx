@@ -4,8 +4,14 @@ import { useCallback, useEffect, useMemo, useState, useTransition } from 'react'
 import { useRouter } from 'next/navigation';
 import { ArrowLeft, Plus, Save, Trash2, Eye } from 'lucide-react';
 import { toast } from 'sonner';
-import { createDocument, getDocumentSeries } from '@/app/actions/document-actions';
+import {
+  createDocument,
+  getBankAccounts,
+  getDocumentSeries,
+  getSignatories,
+} from '@/app/actions/document-actions';
 import { computeTotals } from '@/lib/document-totals';
+import { ComboBox } from './ComboBox';
 import { DocumentPreview, type PreviewDoc } from './DocumentPreview';
 import { cn } from '@/lib/utils';
 
@@ -48,6 +54,12 @@ export default function DocumentFormClient() {
   const [signatoryTitle, setSignatoryTitle] = useState('');
   const [items, setItems] = useState<ItemDraft[]>([{ ...EMPTY_ITEM }]);
   const [tab, setTab] = useState<'form' | 'preview'>('form');
+  const [bankOptions, setBankOptions] = useState<
+    { id: string; bankName: string | null; accountName: string; accountNumber: string | null; branch: string | null }[]
+  >([]);
+  const [signatoryOptions, setSignatoryOptions] = useState<
+    { id: string; name: string; title: string | null }[]
+  >([]);
 
   useEffect(() => {
     getDocumentSeries()
@@ -59,6 +71,35 @@ export default function DocumentFormClient() {
   }, []);
 
   const current = series.find((s) => s.id === seriesId);
+
+  /**
+   * Bank accounts and signatories, loaded per company.
+   *
+   * Reloading on company change is deliberate and not an optimisation. These
+   * lists are kept separate so a HYPE document can never be given the TNT
+   * account; showing a stale list from the previous company would reintroduce
+   * exactly that mistake.
+   */
+  useEffect(() => {
+    if (!current) {
+      setBankOptions([]);
+      setSignatoryOptions([]);
+      return;
+    }
+    let cancelled = false;
+    Promise.all([getBankAccounts(current.company), getSignatories(current.company)])
+      .then(([banks, sigs]) => {
+        if (cancelled) return;
+        setBankOptions(banks);
+        setSignatoryOptions(sigs);
+      })
+      .catch(() => {
+        if (!cancelled) toast.error('Gagal memuat daftar rekening.');
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [current]);
 
   // The SAME function the server action uses. Computing this inline in the
   // browser is how a preview starts promising a total the saved document does
@@ -414,32 +455,93 @@ export default function DocumentFormClient() {
             <h2 className="text-[10px] font-black uppercase tracking-widest text-slate-400">
               Rekening &amp; Penandatangan
             </h2>
-            <div className="grid grid-cols-2 gap-3">
+
+            <p className="text-[10px] text-slate-400 leading-relaxed">
+              Daftar di bawah milik{' '}
+              <span className="font-black text-slate-600">{current?.company}</span> saja.
+              Rekening dan penandatangan tiap perusahaan berbeda, dan salah pilih
+              berarti nomor rekening yang tidak benar ikut tercetak.
+            </p>
+
+            <label className="block">
+              <span className="text-[10px] font-black uppercase tracking-widest text-slate-400">
+                Rekening
+              </span>
+              <div className="mt-1">
+                <ComboBox
+                  value={bankAccountName}
+                  onChange={(v) => {
+                    setBankAccountName(v);
+                    // Picking a known account fills the rest in, so nobody
+                    // assembles a valid name with a mismatched number.
+                    const hit = bankOptions.find(
+                      (b) => b.accountName.toLowerCase() === v.trim().toLowerCase(),
+                    );
+                    if (hit) {
+                      setBankName(hit.bankName ?? '');
+                      setBankAccountNumber(hit.accountNumber ?? '');
+                      setBankBranch(hit.branch ?? '');
+                    }
+                  }}
+                  options={bankOptions.map((b) => ({
+                    value: b.accountName,
+                    label: b.accountName,
+                    hint: [b.bankName, b.accountNumber, b.branch]
+                      .filter(Boolean)
+                      .join(' · '),
+                  }))}
+                  placeholder="Pilih atau ketik nama rekening"
+                />
+              </div>
+            </label>
+
+            <div className="grid grid-cols-3 gap-3">
               <label className="block">
                 <span className="text-[10px] font-black uppercase tracking-widest text-slate-400">Bank</span>
                 <input type="text" value={bankName} onChange={(e) => setBankName(e.target.value)} placeholder="BCA" className="mt-1 w-full px-3 py-2 border border-slate-200 rounded-lg text-xs font-bold text-slate-700 outline-none focus:ring-2 focus:ring-indigo-500" />
               </label>
               <label className="block">
-                <span className="text-[10px] font-black uppercase tracking-widest text-slate-400">Cabang</span>
-                <input type="text" value={bankBranch} onChange={(e) => setBankBranch(e.target.value)} placeholder="KARAWACI" className="mt-1 w-full px-3 py-2 border border-slate-200 rounded-lg text-xs font-bold text-slate-700 outline-none focus:ring-2 focus:ring-indigo-500" />
-              </label>
-              <label className="block">
-                <span className="text-[10px] font-black uppercase tracking-widest text-slate-400">Nama rekening</span>
-                <input type="text" value={bankAccountName} onChange={(e) => setBankAccountName(e.target.value)} placeholder="PT TNT KREATIF DIGITAL AL" className="mt-1 w-full px-3 py-2 border border-slate-200 rounded-lg text-xs font-bold text-slate-700 outline-none focus:ring-2 focus:ring-indigo-500" />
-              </label>
-              <label className="block">
-                <span className="text-[10px] font-black uppercase tracking-widest text-slate-400">Nomor rekening</span>
+                <span className="text-[10px] font-black uppercase tracking-widest text-slate-400">Nomor</span>
                 <input type="text" value={bankAccountNumber} onChange={(e) => setBankAccountNumber(e.target.value)} placeholder="7613472888" className="mt-1 w-full px-3 py-2 border border-slate-200 rounded-lg text-xs font-black text-slate-800 tabular-nums outline-none focus:ring-2 focus:ring-indigo-500" />
               </label>
               <label className="block">
-                <span className="text-[10px] font-black uppercase tracking-widest text-slate-400">Nama penandatangan</span>
-                <input type="text" value={signatoryName} onChange={(e) => setSignatoryName(e.target.value)} placeholder="RUBEN ARIANTO" className="mt-1 w-full px-3 py-2 border border-slate-200 rounded-lg text-xs font-bold text-slate-700 outline-none focus:ring-2 focus:ring-indigo-500" />
+                <span className="text-[10px] font-black uppercase tracking-widest text-slate-400">Cabang</span>
+                <input type="text" value={bankBranch} onChange={(e) => setBankBranch(e.target.value)} placeholder="KARAWACI" className="mt-1 w-full px-3 py-2 border border-slate-200 rounded-lg text-xs font-bold text-slate-700 outline-none focus:ring-2 focus:ring-indigo-500" />
+              </label>
+            </div>
+
+            <div className="grid grid-cols-2 gap-3">
+              <label className="block">
+                <span className="text-[10px] font-black uppercase tracking-widest text-slate-400">
+                  Nama penandatangan
+                </span>
+                <div className="mt-1">
+                  <ComboBox
+                    value={signatoryName}
+                    onChange={(v) => {
+                      setSignatoryName(v);
+                      const hit = signatoryOptions.find(
+                        (s) => s.name.toLowerCase() === v.trim().toLowerCase(),
+                      );
+                      if (hit) setSignatoryTitle(hit.title ?? '');
+                    }}
+                    options={signatoryOptions.map((s) => ({
+                      value: s.name,
+                      label: s.name,
+                      hint: s.title ?? undefined,
+                    }))}
+                    placeholder="Pilih atau ketik nama"
+                  />
+                </div>
               </label>
               <label className="block">
-                <span className="text-[10px] font-black uppercase tracking-widest text-slate-400">Jabatan</span>
+                <span className="text-[10px] font-black uppercase tracking-widest text-slate-400">
+                  Jabatan
+                </span>
                 <input type="text" value={signatoryTitle} onChange={(e) => setSignatoryTitle(e.target.value)} placeholder="DIREKTUR" className="mt-1 w-full px-3 py-2 border border-slate-200 rounded-lg text-xs font-bold text-slate-700 outline-none focus:ring-2 focus:ring-indigo-500" />
               </label>
             </div>
+
             <label className="block">
               <span className="text-[10px] font-black uppercase tracking-widest text-slate-400">
                 Disetujui oleh (nama klien)

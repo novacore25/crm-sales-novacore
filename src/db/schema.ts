@@ -367,6 +367,74 @@ export const oiTargets = pgTable(
   (t) => [uniqueIndex('oi_targets_month_product_key').on(t.monthYear, t.product)],
 );
 
+/**
+ * Bank accounts that have appeared on a document.
+ *
+ * Scoped by company, and that is not tidiness - it is the difference between a
+ * document being right and money being sent to the wrong place. The office pays
+ * from PT TNT KREATIF DIGITAL AL for TNT work and PT SYNERA KREATIF GRUP for
+ * HYPE work. A single shared list would let a HYPE invoice be printed with the
+ * TNT account, and nothing downstream would catch it: the number is valid, the
+ * name is valid, only the pairing is wrong.
+ *
+ * Grows by use rather than by configuration. The office changes these a couple
+ * of times a year, so a settings screen nobody opens would be the wrong tool;
+ * anything typed that does not already exist lands here for next time.
+ */
+export const documentBankAccounts = pgTable(
+  'document_bank_accounts',
+  {
+    id: text('id').primaryKey(),
+    company: documentCompanyEnum('company').notNull(),
+    bankName: text('bank_name'),
+    accountName: text('account_name').notNull(),
+    accountNumber: text('account_number'),
+    branch: text('branch'),
+    isActive: boolean('is_active').notNull().default(true),
+    /**
+     * Times used, and when last. Sorts the dropdown so the account actually in
+     * use is at the top, which is the whole point of offering the list at all.
+     */
+    useCount: integer('use_count').notNull().default(0),
+    lastUsedAt: timestamp('last_used_at', { withTimezone: true }),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow(),
+  },
+  (t) => [
+    // The account number identifies an account. Case-insensitive because
+    // "pt tnt" and "PT TNT" are the same company and would otherwise both be
+    // saved, giving the same wrong number two entries in the list.
+    uniqueIndex('document_bank_accounts_company_number_key').on(t.company, sql`upper(coalesce(${t.accountNumber}, ''))`),
+    index('document_bank_accounts_company_idx').on(t.company),
+  ],
+);
+
+/**
+ * People who sign documents, per company.
+ *
+ * Also company-scoped: the TNT quotation is signed by Ruben Arianto and the TNT
+ * invoice by David Sukanto, so even one company has more than one and the right
+ * one depends on what is being printed.
+ */
+export const documentSignatories = pgTable(
+  'document_signatories',
+  {
+    id: text('id').primaryKey(),
+    company: documentCompanyEnum('company').notNull(),
+    name: text('name').notNull(),
+    title: text('title'),
+    isActive: boolean('is_active').notNull().default(true),
+    useCount: integer('use_count').notNull().default(0),
+    lastUsedAt: timestamp('last_used_at', { withTimezone: true }),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow(),
+  },
+  (t) => [
+    uniqueIndex('document_signatories_company_name_key').on(t.company, sql`upper(${t.name})`),
+    index('document_signatories_company_idx').on(t.company),
+  ],
+);
+
 // ---------------------------------------------------------------------------
 // Documents: quotation and invoice generator
 // ---------------------------------------------------------------------------
@@ -647,6 +715,12 @@ export const documentsRelations = relations(documents, ({ one, many }) => ({
 export const documentItemsRelations = relations(documentItems, ({ one }) => ({
   document: one(documents, { fields: [documentItems.documentId], references: [documents.id] }),
 }));
+
+export const documentBankAccountsRelations = relations(documentBankAccounts, () => ({}));
+export const documentSignatoriesRelations = relations(documentSignatories, () => ({}));
+
+export type DocumentBankAccount = typeof documentBankAccounts.$inferSelect;
+export type DocumentSignatory = typeof documentSignatories.$inferSelect;
 
 export type User = typeof users.$inferSelect;
 export type NewUser = typeof users.$inferInsert;
