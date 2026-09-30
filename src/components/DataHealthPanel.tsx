@@ -48,6 +48,10 @@ export default function DataHealthPanel({ rows }: { rows: DataHealthRow[] }) {
   const totalRevenue = rows.reduce((sum, r) => sum + r.revenue, 0);
   const noHistory = rows.filter((r) => r.lastStage === null);
   const unattributed = rows.filter((r) => !r.lastBy);
+  // Re-logged wins: the same deal recorded more than once, which double-counts
+  // it against whichever month the re-log landed in.
+  const relogged = rows.filter((r) => r.winRowCount > 1);
+  const conflicting = relogged.filter((r) => r.winValues.length > 1);
 
   return (
     <div className="bg-white rounded-3xl border border-amber-200 p-6 md:p-8 shadow-sm">
@@ -114,14 +118,14 @@ export default function DataHealthPanel({ rows }: { rows: DataHealthRow[] }) {
             </p>
           </div>
         )}
-        {rows.length - noHistory.length - unattributed.length > 0 && (
+        {rows.length - noHistory.length - unattributed.length - relogged.length > 0 && (
           <div className="bg-amber-50 border border-amber-200 rounded-xl px-4 py-3">
             <p className="text-[10px] font-black uppercase tracking-widest text-amber-800 mb-1">
               3. Tahap belum lengkap
             </p>
             <p className="text-[11px] text-slate-600 leading-relaxed mb-2">
               <span className="font-black text-amber-800">
-                {rows.length - noHistory.length - unattributed.length} lead
+                {rows.length - noHistory.length - unattributed.length - relogged.length} lead
               </span>{' '}
               sudah punya sebagian tahap, tapi ada yang belum dicatat.
             </p>
@@ -130,6 +134,36 @@ export default function DataHealthPanel({ rows }: { rows: DataHealthRow[] }) {
               (kolom <span className="font-bold">kurang</span> di tabel), dengan tanggal yang
               sebenarnya. Penting: isi tanggal yang benar, bukan yang bikin angka kelihatan bagus -
               kalau tanggalnya di luar periode yang sedang dilihat, angkanya tidak akan berubah.
+            </p>
+          </div>
+        )}
+        {relogged.length > 0 && (
+          <div className="bg-red-50 border border-red-200 rounded-xl px-4 py-3 md:col-span-2">
+            <p className="text-[10px] font-black uppercase tracking-widest text-red-700 mb-1">
+              4. Deal yang sama tercatat lebih dari sekali
+            </p>
+            <p className="text-[11px] text-slate-600 leading-relaxed mb-2">
+              <span className="font-black text-red-700">{relogged.length} lead</span> punya lebih dari
+              satu baris <span className="font-bold">Close Win</span>. Kalau baris-baris itu di bulan
+              yang berbeda, deal-nya terhitung dua kali - di bulan pertama dan lagi di bulan saat
+              pencatatannya diulang.
+              {conflicting.length > 0 && (
+                <>
+                  {' '}
+                  <span className="font-black text-red-700">
+                    {conflicting.length} di antaranya juga punya nilai yang berbeda-beda
+                  </span>{' '}
+                  untuk deal yang sama, jadi angkanya tidak bisa dipertahankan kalau ditanya.
+                </>
+              )}
+            </p>
+            <p className="text-[11px] text-red-800 leading-relaxed">
+              <span className="font-black">Yang perlu dilakukan:</span> buka tiap lead, lihat
+              riwayatnya, lalu <span className="font-bold">hapus baris Close Win yang duplikat</span> dan
+              sisakan satu yang tanggal dan nilainya benar. Setelah itu, kalau status lead-nya{' '}
+              <span className="font-bold">Hold</span> sementara baris win-nya masih ada, pilih satu:
+              benar-benar sudah tutup (ubah status ke Close Win) atau memang belum (hapus baris
+              win-nya). Dua-duanya tidak bisa benar bersamaan.
             </p>
           </div>
         )}

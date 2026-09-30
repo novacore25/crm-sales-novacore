@@ -67,6 +67,22 @@ export interface DataHealthRow {
   /** Who last touched it, for whoever does the repair. */
   lastBy: string | null;
   lastTouchedAt: string | null;
+  /**
+   * How many times this lead has a Close Win row.
+   *
+   * More than one means the same deal was logged more than once, which is
+   * common when someone re-runs a funnel rather than adding to it. Each re-log
+   * can carry a different deal_value, so the number the dashboard shows depends
+   * on which row it happens to pick.
+   */
+  winRowCount: number;
+  /**
+   * The distinct deal values across those win rows.
+   *
+   * More than one is the real problem: the same closed deal was recorded at two
+   * different amounts, and there is no way to tell from the data which is right.
+   */
+  winValues: number[];
 }
 
 export interface ContributionRow {
@@ -613,6 +629,27 @@ export async function getFunnelIncompleteWins(): Promise<DataHealthRow[]> {
       FROM funnel_history fh
       ORDER BY fh.lead_id, fh.date_occurred DESC, fh.created_at DESC
     ),
+    -- Every win row, not just the latest one.
+    --
+    -- The old version took a single DISTINCT ON row per lead, which hid the
+    -- fact that some deals were logged two or three times. Six leads were
+    -- re-run in September after winning in July or August, so September
+    -- counted Rp 30.25 million of wins that had already happened - and one of
+    -- them, Urban Wellness, carries Rp 2.5 juta in July and Rp 5 juta in
+    -- August for what is the same deal.
+    --
+    -- Both signals are what the lord needs: a repeated log is untidy, and two
+    -- different values for one deal is a figure nobody can defend in a meeting.
+    win_rows AS (
+      SELECT
+        fh.lead_id,
+        COUNT(*)::int                        AS win_row_count,
+        ARRAY_AGG(DISTINCT fh.deal_value)    AS win_values
+      FROM funnel_history fh
+      WHERE fh.stage = 'Close Win'
+        AND fh.deal_value IS NOT NULL
+      GROUP BY fh.lead_id
+    ),
     win_value AS (
       SELECT DISTINCT ON (fh.lead_id)
         fh.lead_id,
@@ -630,6 +667,8 @@ export async function getFunnelIncompleteWins(): Promise<DataHealthRow[]> {
       lt.by_user_name                       AS last_by,
       lt.date_occurred                      AS last_touched_at,
       COALESCE(wv.revenue, 0)               AS revenue,
+      COALESCE(wr.win_row_count, 0)          AS win_row_count,
+      COALESCE(wr.win_values, ARRAY[]::numeric[]) AS win_values,
       -- Built as an array in funnel order so the UI can show "missing:
       -- Responsed, Set Meeting" without hardcoding the sequence client-side.
       ARRAY_REMOVE(ARRAY[
@@ -640,6 +679,7 @@ export async function getFunnelIncompleteWins(): Promise<DataHealthRow[]> {
     LEFT JOIN stages s      ON s.lead_id = l.id
     LEFT JOIN last_touch lt ON lt.lead_id = l.id
     LEFT JOIN win_value wv  ON wv.lead_id = l.id
+    LEFT JOIN win_rows wr   ON wr.lead_id = l.id
     WHERE l.is_deleted = false
       AND l.status = 'Close Win'
       AND (NOT COALESCE(s.has_responsed, false) OR NOT COALESCE(s.has_set_meeting, false))
@@ -666,6 +706,8 @@ export async function getFunnelIncompleteWins(): Promise<DataHealthRow[]> {
       missingStages: missing,
       revenue: Number(r.revenue ?? 0),
       lastBy: r.last_by === null ? null : String(r.last_by),
+      winRowCount: Number(r.win_row_count ?? 0),
+      winValues: Array.isArray(r.win_values) ? (r.win_values as unknown[]).map(Number) : [],
       lastTouchedAt:
         r.last_touched_at === null ? null : new Date(String(r.last_touched_at)).toISOString(),
     };
