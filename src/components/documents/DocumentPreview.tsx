@@ -17,10 +17,12 @@ import type { ReactNode } from 'react';
  * page, so the header and title band were compressed and the table given the
  * room it needs instead.
  *
- * The header and footer are `print:fixed`, which is how Chrome repeats them on
- * every page of a multi-page document. The spacing they occupy is applied
- * unconditionally, not only in print, so the preview shows the same geometry the
- * printer will.
+ * The header and footer repeat on every printed page through `print:fixed`,
+ * which is how Chrome runs them. On screen the header is `sticky` so the company
+ * identity stays visible while scrolling a long document, and the footer is left
+ * to the flex layout so it lands on the page's bottom edge - `sticky bottom-0`
+ * resolves against the preview pane rather than the page, and pulled the footer
+ * 105mm up the sheet.
  */
 
 export interface PreviewItem {
@@ -154,7 +156,7 @@ function Sheet({
   footerSpace: string;
 }) {
   return (
-    <div className="bg-white text-slate-800 flex flex-col min-h-full print:min-h-0">
+    <div className="bg-white text-slate-800 flex flex-col min-h-[297mm] print:min-h-0">
       {/* The page gutter is on all three bands, in both media. An earlier
           version dropped it from the body under `print:`, which put the whole
           document against the left trim edge and clipped it - and it only showed
@@ -173,8 +175,15 @@ function Sheet({
         {children}
       </div>
 
+      {/* The footer is placed by the flex layout, not by `sticky bottom-0`.
+          Sticky resolves against the nearest scrolling ancestor, which is the
+          preview pane and not the page - so on a short document it hauled the
+          footer up to the bottom of the visible area and left 105mm of blank
+          paper underneath it. Flex puts it on the page's bottom edge, which is
+          where the printed document has it. The printed page still repeats it on
+          every sheet via print:fixed. */}
       <div
-        className="shrink-0 px-[14mm] bg-white sticky bottom-0 z-20 print:fixed print:bottom-0 print:left-0 print:right-0 print:w-[210mm]"
+        className="shrink-0 px-[14mm] bg-white print:fixed print:bottom-0 print:left-0 print:right-0 print:z-20 print:w-[210mm]"
       >
         {footer}
       </div>
