@@ -155,21 +155,26 @@ function Sheet({
 }) {
   return (
     <div className="bg-white text-slate-800 flex flex-col min-h-full print:min-h-0">
+      {/* The page gutter is on all three bands, in both media. An earlier
+          version dropped it from the body under `print:`, which put the whole
+          document against the left trim edge and clipped it - and it only showed
+          up on paper, because the screen preview is scaled and nobody compares
+          it against a ruler. */}
       <div
-        className="shrink-0 print:fixed print:top-0 print:left-0 print:right-0 print:z-20 print:w-[210mm] bg-white print:pt-[10mm] print:px-[14mm]"
+        className="shrink-0 px-[14mm] print:fixed print:top-0 print:left-0 print:right-0 print:z-20 print:w-[210mm] bg-white print:pt-[10mm]"
       >
         {header}
       </div>
 
       <div
-        className="flex-1 px-[14mm] print:px-0"
+        className="flex-1 px-[14mm]"
         style={{ paddingTop: headerSpace, paddingBottom: footerSpace }}
       >
         {children}
       </div>
 
       <div
-        className="shrink-0 print:fixed print:bottom-0 print:left-0 print:right-0 print:z-20 print:w-[210mm] bg-white print:px-[14mm] print:pb-[6mm]"
+        className="shrink-0 px-[14mm] print:fixed print:bottom-0 print:left-0 print:right-0 print:z-20 print:w-[210mm] bg-white print:pb-[6mm]"
       >
         {footer}
       </div>
@@ -197,24 +202,33 @@ function TntTemplate({ doc }: { doc: PreviewDoc }) {
             <span className="text-white text-lg font-black">T</span>
           </div>
           <div className="leading-none">
+            {/* The wordmark needs a real space. JSX drops whitespace between an
+                element and an inline sibling, which rendered it as
+                "Thickand Thin". */}
             <div className="text-[17px] font-black tracking-tight text-slate-900">
-              Thick<span className="font-light">and Thin</span>
+              Thick<span className="font-light">&nbsp;and Thin</span>
             </div>
             <div className="text-[9px] text-slate-500 mt-0.5">Media Indonesia</div>
           </div>
         </div>
       }
       footer={
-        <div style={{ background: MAROON }} className="flex items-center gap-2 px-4 py-2 text-white">
+        /* Full-bleed: the bar runs off both trim edges and sits on the bottom of
+           the sheet, as on the paper. The negative margin cancels the page
+           gutter applied by the sheet. */
+        <div style={{ background: MAROON }} className="-mx-[14mm] -mb-[6mm] flex items-center gap-2 px-[14mm] py-2.5 text-white print:mb-0">
           <div className="h-0.5 flex-1 bg-amber-400" />
           <span className="text-[7.5px] font-bold">tntkreatif.com</span>
           <div className="h-0.5 w-14 bg-amber-400" />
           <span className="text-[7.5px] font-bold">Thick and Thin Media</span>
+          <div className="h-0.5 flex-1 bg-amber-400" />
         </div>
       }
     >
-      {/* title band */}
-      <div className="flex items-stretch mb-5 print:break-after-avoid">
+      {/* Title band. Full-bleed, like the paper - it butts against both trim
+          edges, which is most of what makes it read as a letterhead rather than
+          a shaded heading. */}
+      <div className="-mx-[14mm] flex items-stretch mb-5 print:break-after-avoid">
         <div className="flex-1" style={{ background: MAROON }} />
         <div className="px-7 py-2 text-[26px] font-black tracking-tight text-slate-900">
           {isInvoice ? 'INVOICE' : 'QUOTATION'}
@@ -246,30 +260,34 @@ function TntTemplate({ doc }: { doc: PreviewDoc }) {
         </div>
       </div>
 
-      {/* items */}
+      {/* items. The paper separates the columns with hairlines and leaves the
+          description cell open, so the column edges carry the grid rather than a
+          box around every cell. */}
       <table className="w-full border-collapse text-[9.5px]">
         <thead>
           <tr className="bg-slate-800 text-white print:break-after-avoid">
             <th className="px-2 py-1.5 text-left w-8">No</th>
-            <th className="px-2 py-1.5 text-left">Description</th>
-            <th className="px-2 py-1.5 text-right w-24">Price</th>
-            <th className="px-2 py-1.5 text-center w-20">Period</th>
-            <th className="px-2 py-1.5 text-right w-28">Total Price</th>
+            <th className="px-2 py-1.5 text-left border-l border-slate-400/40">Description</th>
+            <th className="px-2 py-1.5 text-right w-24 border-l border-slate-400/40">Price</th>
+            <th className="px-2 py-1.5 text-center w-20 border-l border-slate-400/40">Period</th>
+            <th className="px-2 py-1.5 text-right w-28 border-l border-slate-400/40">Total Price</th>
           </tr>
         </thead>
         <tbody>
           {doc.items.map((it, i) => (
-            <tr key={i} className="border-b-2 border-slate-800/20 align-top print:break-inside-avoid">
+            <tr key={i} className="border-b border-slate-300 align-top print:break-inside-avoid">
               <td className="px-2 py-2.5 text-center font-black">{i + 1}</td>
-              <td className="px-2 py-2.5">
+              <td className="px-2 py-2.5 border-l border-slate-300">
                 <div className="font-black text-[10.5px] mb-0.5">{it.title}</div>
                 <Description text={it.description} />
               </td>
-              <td className="px-2 py-2.5 text-right font-black tabular-nums whitespace-nowrap">
+              <td className="px-2 py-2.5 text-right font-black tabular-nums whitespace-nowrap border-l border-slate-300">
                 {rupiah(it.price)}
               </td>
-              <td className="px-2 py-2.5 text-center font-bold text-[8.5px]">{it.period || '-'}</td>
-              <td className="px-2 py-2.5 text-right font-black tabular-nums whitespace-nowrap">
+              <td className="px-2 py-2.5 text-center font-bold text-[8.5px] border-l border-slate-300">
+                {it.period || '-'}
+              </td>
+              <td className="px-2 py-2.5 text-right font-black tabular-nums whitespace-nowrap border-l border-slate-300">
                 {rupiah(it.price)}
               </td>
             </tr>
@@ -284,50 +302,84 @@ function TntTemplate({ doc }: { doc: PreviewDoc }) {
         </tbody>
       </table>
 
-      {/* totals + terms */}
+      {/* terms on the left, money on the right. The totals sit on one grey
+          block that starts at the page's midpoint, as on the paper - a stacked
+          list of thin-bordered rows read as a spreadsheet, not a quotation. */}
       <div className="mt-4 flex gap-5 items-start print:break-inside-avoid">
         <div className="flex-1 min-w-0 pt-0.5">
           <Terms text={doc.terms} />
         </div>
-        <div className="w-60 shrink-0 text-[9.5px]">
-          <div className="flex justify-between py-1 border-b border-slate-200">
-            <span className="font-black uppercase tracking-widest text-slate-500">Total</span>
-            <span className="font-black tabular-nums">{rupiah(doc.subtotal)}</span>
+
+        <div className="w-1/2 shrink-0 text-[9.5px]">
+          <div className="px-2.5 py-1" style={{ background: '#808080' }}>
+            <div className="flex justify-between gap-3 py-0.5">
+              <span className="font-bold text-white">Total</span>
+              <span className="font-bold text-white tabular-nums">{rupiah(doc.subtotal)}</span>
+            </div>
+
+            {doc.taxRate !== null &&
+              (doc.taxAmount === 0 ? (
+                /* A zero tax line is a deliberate correction - the office strikes
+                   it out on paper rather than deleting the row, so the reader can
+                   see the rate was considered. Printing a bare "Rp 0" instead
+                   would just look like a mistake. */
+                <div className="flex justify-between gap-3 py-0.5 text-red-600">
+                  <span className="font-bold line-through">
+                    {(doc.taxLabel || 'Tax').toUpperCase()} {doc.taxRate}%
+                  </span>
+                  <span className="font-bold tabular-nums line-through">
+                    {rupiah(doc.taxAmount)}
+                  </span>
+                </div>
+              ) : (
+                <div className="flex justify-between gap-3 py-0.5">
+                  <span className="font-bold text-white">
+                    {(doc.taxLabel || 'Tax').toUpperCase()} {doc.taxRate}%
+                  </span>
+                  <span className="font-bold text-white tabular-nums">
+                    {rupiah(doc.taxAmount)}
+                  </span>
+                </div>
+              ))}
+
+            <div className="flex justify-between gap-3 py-0.5">
+              <span className="font-bold text-white">Total Payment</span>
+              <span className="font-bold text-white tabular-nums">{rupiah(doc.grandTotal)}</span>
+            </div>
           </div>
-          {doc.taxRate !== null && (
-            <>
-              <div className="flex justify-between py-1 border-b border-slate-200">
-                <span className="font-black uppercase tracking-widest text-slate-500">
-                  {doc.taxLabel || 'Tax'}
-                </span>
-                <span className="font-black tabular-nums">{rupiah(doc.taxAmount)}</span>
-              </div>
-              <div className="flex justify-between py-1.5 bg-slate-700 text-white px-2">
-                <span className="font-black uppercase tracking-widest">Total Payment</span>
-                <span className="font-black tabular-nums">{rupiah(doc.grandTotal)}</span>
-              </div>
-            </>
+
+          {/* Bank details sit under the totals on the right, closed off with a
+              gold rule - the same device the footer uses. */}
+          {(doc.bankName || doc.bankAccountName || doc.bankAccountNumber) && (
+            <div className="mt-2.5 pl-3 space-y-0.5" style={{ borderBottom: '1.5px solid #E8B923' }}>
+              {doc.bankName && (
+                <div className="flex gap-1.5">
+                  <span className={`font-black ${MAROON_TEXT}`}>Bank</span>
+                  <span className="text-slate-700">: {doc.bankName}</span>
+                </div>
+              )}
+              {doc.bankAccountName && (
+                <div className="flex gap-1.5">
+                  <span className={`font-black ${MAROON_TEXT}`}>Account Name</span>
+                  <span className="text-slate-700">: {doc.bankAccountName}</span>
+                </div>
+              )}
+              {doc.bankAccountNumber && (
+                <div className="flex gap-1.5">
+                  <span className={`font-black ${MAROON_TEXT}`}>Account Number</span>
+                  <span className="text-slate-700 tabular-nums">: {doc.bankAccountNumber}</span>
+                </div>
+              )}
+              {doc.bankBranch && (
+                <div className="flex gap-1.5">
+                  <span className={`font-black ${MAROON_TEXT}`}>KCP</span>
+                  <span className="text-slate-700">: {doc.bankBranch}</span>
+                </div>
+              )}
+            </div>
           )}
         </div>
       </div>
-
-      {/* bank */}
-      {(doc.bankName || doc.bankAccountName || doc.bankAccountNumber) && (
-        <div className="mt-3 text-[8.5px] space-y-0.5 print:break-inside-avoid">
-          {doc.bankName && (
-            <div className="flex gap-2"><span className={`font-black ${MAROON_TEXT}`}>Bank</span><span className="text-slate-700">: {doc.bankName}</span></div>
-          )}
-          {doc.bankAccountName && (
-            <div className="flex gap-2"><span className={`font-black ${MAROON_TEXT}`}>Account Name</span><span className="text-slate-700">: {doc.bankAccountName}</span></div>
-          )}
-          {doc.bankAccountNumber && (
-            <div className="flex gap-2"><span className={`font-black ${MAROON_TEXT}`}>Account Number</span><span className="text-slate-700 tabular-nums">: {doc.bankAccountNumber}</span></div>
-          )}
-          {doc.bankBranch && (
-            <div className="flex gap-2"><span className={`font-black ${MAROON_TEXT}`}>Branch</span><span className="text-slate-700">: {doc.bankBranch}</span></div>
-          )}
-        </div>
-      )}
 
       <Signatures doc={doc} maroon />
     </Sheet>
@@ -362,7 +414,10 @@ function HypeTemplate({ doc }: { doc: PreviewDoc }) {
         </div>
       }
       footer={
-        <div className="flex items-center gap-3" style={{ borderTop: `3px solid ${LIME}` }}>
+        <div
+          className="-mx-[14mm] -mb-[6mm] flex items-center gap-3 border-t-[3px] px-[14mm] py-2 print:mb-0"
+          style={{ borderColor: LIME }}
+        >
           <span className="text-[8px] font-black uppercase tracking-widest">PT Synera Kreatif Grup</span>
           <div className="h-0.5 flex-1 bg-slate-900" />
           <span className="text-[7.5px] text-slate-500">hyprojectt@gmail.com &middot; +62 857-7411-2604</span>

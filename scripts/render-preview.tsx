@@ -1,4 +1,4 @@
-import { DocumentPreview } from "../src/components/documents/DocumentPreview";
+﻿import { DocumentPreview } from "../src/components/documents/DocumentPreview";
 import { renderToStaticMarkup } from "react-dom/server";
 import { writeFileSync } from "node:fs";
 
@@ -23,41 +23,42 @@ const base = {
   items: [
     {
       title: "Affiliate Booster",
-      description: "1.500 creators (VT Concept & Quantity will be adjust by Thick & Thin Media)\n- Upload 1.500 VT with Yellow Cart\n- Tier Creator\n  - Mega 1\n  - Macro 15\n  - Micro 124\n  - Nano 360\n- SOW per creator 3 video by Thick & Thin Media",
+      description:
+        "1.500 creators (VT Concept & Quantity will be adjust by Thick & Thin Media)\n- Upload 1.500 VT with Yellow Cart\n- Tier Creator\n  - Mega 1\n  - Macro 15\n  - Micro 124\n  - Nano 360\n- SOW per creator 3 video by Thick & Thin Media",
       period: "30 Days",
       price: 50000000,
     },
   ],
 };
 
-const tnt = renderToStaticMarkup(
-  DocumentPreview({ doc: { ...base, company: "TNT", docType: "QUOTATION" } } as never),
-);
-const hype = renderToStaticMarkup(
-  DocumentPreview({
-    doc: {
-      ...base,
-      company: "HYPE",
-      docType: "INVOICE",
-      number: "005/QUO-HYPE",
-      bankAccountName: "PT SYNERA KREATIF GRUP",
-      bankAccountNumber: "8832372730",
-      bankBranch: null,
-      signatoryTitle: "General Manager",
-    },
-  } as never),
-);
+const docs: Record<string, unknown> = {
+  p_tnt: { ...base, company: "TNT", docType: "QUOTATION" },
+  p_hype: {
+    ...base,
+    company: "HYPE",
+    docType: "INVOICE",
+    number: "005/INV-HYPE",
+    bankAccountName: "PT SYNERA KREATIF GRUP",
+    bankAccountNumber: "8832372730",
+    bankBranch: null,
+    signatoryTitle: "General Manager",
+  },
+};
 
-const css = `body{margin:0;background:#fff;font-family:Helvetica,Arial,sans-serif}
-.sheet{width:794px;min-height:1123px;overflow:hidden;box-sizing:border-box;background:#fff}
-@media print{@page{size:A4 portrait;margin:0}}`;
-
-writeFileSync(
-  "C:/Users/Banzilla/AppData/Local/Temp/opencode/docpreview/p_tnt.html",
-  `<style>${css}</style><div class="sheet">${tnt}</div>`,
-);
-writeFileSync(
-  "C:/Users/Banzilla/AppData/Local/Temp/opencode/docpreview/p_hype.html",
-  `<style>${css}</style><div class="sheet">${hype}</div>`,
-);
-console.log("HTML written");
+for (const [slug, doc] of Object.entries(docs)) {
+  writeFileSync(
+    `C:/Users/Banzilla/AppData/Local/Temp/opencode/docpreview/${slug}.html`,
+    `<!doctype html><meta charset="utf-8">
+<link rel="stylesheet" href="./app.css">
+<style>
+  html,body{margin:0;background:#fff}
+  .sheet{width:210mm;min-height:297mm;box-sizing:border-box;background:#fff}
+  @media print{
+    @page{size:A4 portrait;margin:0}
+    .sheet{width:210mm}
+  }
+</style>
+<div class="sheet">${renderToStaticMarkup(DocumentPreview({ doc } as never))}</div>`,
+  );
+}
+console.log("HTML written with real Tailwind CSS");
