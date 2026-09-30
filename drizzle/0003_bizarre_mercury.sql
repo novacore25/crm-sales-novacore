@@ -9,13 +9,18 @@
 -- outside it:
 --   TNT quotation   037/QUO-TNT/SA/IX/26    -> next 38
 --   TNT invoice     01/INV-TNT/MCN/VIII/26  -> next 2
---   HYPE            003/QUO-HYPE             -> next 4
--- HYPE appears to run one counter across both types, so its invoice is
--- deliberately NOT seeded here; the office picks the first number by hand in
--- the settings screen.
+--   HYPE            003/QUO-HYPE             -> next 5
 --
--- If these are wrong, change the numbers below before running, or edit them
--- afterwards in the app. Nothing else depends on the values.
+-- The HYPE figure is the uncertain one. On paper HYPE's quotation is 003 and
+-- its invoice is 04, which is consistent with ONE counter running across both
+-- types. It is also consistent with two counters that happen to sit next to
+-- each other. 5 is the only value that is safe under either reading: if the
+-- counters are shared, 5 is simply correct; if they are separate, one number
+-- is skipped, which is harmless and visible.
+--
+-- If the office knows which it is, correct this in the app afterwards under
+-- Documents -> Settings. Going below a number already printed is refused, so a
+-- mistake here cannot quietly produce a duplicate.
 
 DO $$ BEGIN
   CREATE TYPE "public"."document_company" AS ENUM('TNT', 'HYPE');
@@ -108,5 +113,5 @@ INSERT INTO "document_series" ("id", "company", "doc_type", "format", "next_numb
 VALUES
   ('tnt-quotation', 'TNT',  'QUOTATION', '{seq:3}/{type}-TNT/{seg}/{roman}/{yy}', 38, 'Quotation - Thick and Thin'),
   ('tnt-invoice',   'TNT',  'INVOICE',   '{seq:3}/{type}-TNT/{seg}/{roman}/{yy}', 2,  'Invoice - Thick and Thin'),
-  ('hype-quotation','HYPE', 'QUOTATION', '{seq:3}/QUO-HYPE',                        3,  'Quotation - HYPE')
+  ('hype-quotation','HYPE', 'QUOTATION', '{seq:3}/QUO-HYPE',                        5,  'Quotation - HYPE')
 ON CONFLICT DO NOTHING;
