@@ -2,13 +2,14 @@
 
 import { useCallback, useEffect, useMemo, useState, useTransition } from 'react';
 import { useRouter } from 'next/navigation';
-import { ArrowLeft, Plus, Save, Trash2, Eye } from 'lucide-react';
+import { ArrowLeft, Plus, Save, Trash2, Eye, Printer } from 'lucide-react';
 import { toast } from 'sonner';
 import {
   createDocument,
   getBankAccounts,
   getDocumentSeries,
   getSignatories,
+  updateDocument,
 } from '@/app/actions/document-actions';
 import { computeTotals } from '@/lib/document-totals';
 import { ComboBox } from './ComboBox';
@@ -32,28 +33,57 @@ const rupiah = (n: number) =>
     maximumFractionDigits: 0,
   }).format(n);
 
-export default function DocumentFormClient() {
+/**
+ * The document as it comes back from the server, in the shape the form needs.
+ * Kept separate from the DB row so the form does not have to know about
+ * numeric-string columns.
+ */
+export interface DocumentFormSeed {
+  id: string;
+  seriesId: string;
+  clientName: string;
+  issueDate: string | null;
+  period: string | null;
+  taxRate: string | null;
+  taxLabel: string | null;
+  terms: string | null;
+  approverName: string | null;
+  bankName: string | null;
+  bankAccountName: string | null;
+  bankAccountNumber: string | null;
+  bankBranch: string | null;
+  signatoryName: string | null;
+  signatoryTitle: string | null;
+  items: { title: string; description: string; period: string; price: string }[];
+}
+
+export default function DocumentFormClient({ seed }: { seed?: DocumentFormSeed }) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
+  const isEdit = !!seed;
 
   const [series, setSeries] = useState<
     { id: string; label: string | null; company: string; docType: string }[]
   >([]);
-  const [seriesId, setSeriesId] = useState('');
-  const [clientName, setClientName] = useState('');
-  const [issueDate, setIssueDate] = useState(() => new Date().toISOString().slice(0, 10));
-  const [period, setPeriod] = useState('');
-  const [taxRate, setTaxRate] = useState('');
-  const [taxLabel, setTaxLabel] = useState('PPN');
-  const [terms, setTerms] = useState('');
-  const [approverName, setApproverName] = useState('');
-  const [bankName, setBankName] = useState('');
-  const [bankAccountName, setBankAccountName] = useState('');
-  const [bankAccountNumber, setBankAccountNumber] = useState('');
-  const [bankBranch, setBankBranch] = useState('');
-  const [signatoryName, setSignatoryName] = useState('');
-  const [signatoryTitle, setSignatoryTitle] = useState('');
-  const [items, setItems] = useState<ItemDraft[]>([{ ...EMPTY_ITEM }]);
+  const [seriesId, setSeriesId] = useState(seed?.seriesId ?? '');
+  const [clientName, setClientName] = useState(seed?.clientName ?? '');
+  const [issueDate, setIssueDate] = useState(
+    seed?.issueDate ?? new Date().toISOString().slice(0, 10),
+  );
+  const [period, setPeriod] = useState(seed?.period ?? '');
+  const [taxRate, setTaxRate] = useState(seed?.taxRate ?? '');
+  const [taxLabel, setTaxLabel] = useState(seed?.taxLabel ?? 'PPN');
+  const [terms, setTerms] = useState(seed?.terms ?? '');
+  const [approverName, setApproverName] = useState(seed?.approverName ?? '');
+  const [bankName, setBankName] = useState(seed?.bankName ?? '');
+  const [bankAccountName, setBankAccountName] = useState(seed?.bankAccountName ?? '');
+  const [bankAccountNumber, setBankAccountNumber] = useState(seed?.bankAccountNumber ?? '');
+  const [bankBranch, setBankBranch] = useState(seed?.bankBranch ?? '');
+  const [signatoryName, setSignatoryName] = useState(seed?.signatoryName ?? '');
+  const [signatoryTitle, setSignatoryTitle] = useState(seed?.signatoryTitle ?? '');
+  const [items, setItems] = useState<ItemDraft[]>(
+    seed?.items.length ? seed.items : [{ ...EMPTY_ITEM }],
+  );
   const [tab, setTab] = useState<'form' | 'preview'>('form');
   const [previewExpanded, setPreviewExpanded] = useState(false);
   const [bankOptions, setBankOptions] = useState<
@@ -177,7 +207,7 @@ export default function DocumentFormClient() {
     }
     const clean = items.filter((i) => i.title.trim());
     startTransition(async () => {
-      const res = await createDocument({
+      const payload = {
         seriesId,
         clientName: clientName.trim(),
         product: null,
@@ -200,7 +230,24 @@ export default function DocumentFormClient() {
           period: i.period || null,
           price: Number(i.price) || 0,
         })),
-      });
+      };
+
+      // updateDocument refuses anything that is not a DRAFT, so an edit that lost
+      // a race with someone publishing the document fails loudly instead of
+      // silently rewriting an issued one.
+      if (isEdit && seed) {
+        const res = await updateDocument(seed.id, payload);
+        if (!res.success) {
+          toast.error(res.error ?? 'Gagal menyimpan perubahan');
+          return;
+        }
+        toast.success('DRAFT diperbarui');
+        router.push(`/documents/${seed.id}`);
+        router.refresh();
+        return;
+      }
+
+      const res = await createDocument(payload);
       if (!res.success || !res.id) {
         toast.error(res.error ?? 'Gagal menyimpan dokumen');
         return;
@@ -223,15 +270,29 @@ export default function DocumentFormClient() {
           </button>
           <div className="min-w-0">
             <h1 className="text-lg font-black text-slate-900 tracking-tight truncate">
-              Buat Dokumen
+              {isEdit ? 'Edit Draft' : 'Buat Dokumen'}
             </h1>
             <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">
-              Tersimpan sebagai DRAFT &middot; belum ada nomor
+              {isEdit
+                ? 'Perubahan langsung tersimpan ke draft ini'
+                : 'Tersimpan sebagai DRAFT · belum ada nomor'}
             </p>
           </div>
         </div>
 
         <div className="flex items-center gap-2 shrink-0">
+          {/* Printable before publishing, so the layout can be checked while the
+              document is still cheap to change. */}
+          {isEdit && seed && (
+            <button
+              onClick={() => router.push(`/documents/${seed.id}/print`)}
+              title="Buka tampilan cetak, lalu Save as PDF"
+              className="px-3 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-[11px] font-black uppercase tracking-widest transition flex items-center gap-1.5"
+            >
+              <Printer className="w-4 h-4" />
+              <span className="hidden md:inline">Print</span>
+            </button>
+          )}
           <div className="hidden md:flex rounded-xl bg-slate-100 p-1">
             <button
               onClick={() => setTab('form')}

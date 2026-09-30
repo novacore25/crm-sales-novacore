@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState, useTransition } from 'react';
 import { useRouter } from 'next/navigation';
-import { ArrowLeft, Ban, Send, Printer, Trash2 } from 'lucide-react';
+import { ArrowLeft, Ban, Send, Printer, Trash2, Pencil } from 'lucide-react';
 import { toast } from 'sonner';
 import {
   cancelDocument,
@@ -208,13 +208,24 @@ export default function DocumentDetailClient({
         </div>
 
         <div className="flex items-center gap-2 shrink-0">
-          {doc.number && (
+          {/* Available on a draft too. Checking the layout before the number is
+              assigned is the point - the number is the last thing that changes,
+              not the thing that decides how the page looks. */}
+          <button
+            onClick={() => router.push(`/documents/${doc.id}/print`)}
+            title="Buka tampilan cetak, lalu Save as PDF"
+            className="px-3 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-[11px] font-black uppercase tracking-widest transition flex items-center gap-1.5"
+          >
+            <Printer className="w-4 h-4" />
+            <span className="hidden md:inline">Print</span>
+          </button>
+          {isDraft && (
             <button
-              onClick={() => router.push(`/documents/${doc.id}/print`)}
-              className="px-3 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-[11px] font-black uppercase tracking-widest transition flex items-center gap-1.5"
+              onClick={() => router.push(`/documents/${doc.id}/edit`)}
+              className="px-3 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-[11px] font-black uppercase tracking-widest transition shadow-lg shadow-indigo-500/20 flex items-center gap-1.5"
             >
-              <Printer className="w-4 h-4" />
-              <span className="hidden md:inline">Print</span>
+              <Pencil className="w-4 h-4" />
+              <span className="hidden md:inline">Edit</span>
             </button>
           )}
           {isDraft && (

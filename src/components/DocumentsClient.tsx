@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { FileText, Plus, Search, Trash2, Ban, Send, FileCheck2 } from 'lucide-react';
+import { FileText, Plus, Search, Trash2, Ban, Send, FileCheck2, Pencil, Printer } from 'lucide-react';
 import { toast } from 'sonner';
 import {
   cancelDocument,
@@ -285,6 +285,28 @@ export default function DocumentsClient({ user }: { user: UserProfile }) {
                     </td>
                     <td className="px-5 py-3">
                       <div className="flex items-center gap-1.5 justify-end">
+                        {/* Edit and Print are offered on a draft as well as on a
+                            published document. A draft is the cheapest moment
+                            to fix a wording, and checking the printed layout
+                            before the number is assigned is the whole reason
+                            the number is the last step rather than the
+                            first. */}
+                        {r.status === 'DRAFT' && (
+                          <button
+                            onClick={() => router.push(`/documents/${r.id}/edit`)}
+                            title="Edit draft"
+                            className="p-1.5 text-indigo-600 hover:bg-indigo-50 rounded-lg transition"
+                          >
+                            <Pencil className="w-4 h-4" />
+                          </button>
+                        )}
+                        <button
+                          onClick={() => router.push(`/documents/${r.id}/print`)}
+                          title="Lihat hasil cetak"
+                          className="p-1.5 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-lg transition"
+                        >
+                          <Printer className="w-4 h-4" />
+                        </button>
                         {r.status === 'DRAFT' && (
                           <button
                             onClick={() => openIssue(r)}
