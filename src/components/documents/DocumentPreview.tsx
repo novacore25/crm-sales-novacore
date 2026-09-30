@@ -76,13 +76,20 @@ const MONTHS_ID = [
   'Juli', 'Agustus', 'September', 'Oktober', 'November', 'Desember',
 ];
 
-function formatDate(iso: string | null, lang: 'en' | 'id'): string {
+/**
+ * `id-caps` exists because HYPE quotations print their date in capitals
+ * ("11 SEPTEMBER 2026") while HYPE invoices do not ("15 Juni 2026"). That
+ * inconsistency is in the office's own documents. Normalising it would be tidier
+ * and wrong: an old and a new document would stop looking like they came from
+ * the same company.
+ */
+function formatDate(iso: string | null, lang: 'en' | 'id' | 'id-caps'): string {
   if (!iso) return '-';
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return '-';
   const day = d.getDate();
   const month = (lang === 'en' ? MONTHS_EN : MONTHS_ID)[d.getMonth()];
-  return `${day} ${month} ${d.getFullYear()}`;
+  return `${day} ${lang === 'id-caps' ? month.toUpperCase() : month} ${d.getFullYear()}`;
 }
 
 /**
@@ -148,13 +155,36 @@ function Sheet({
   footer,
   footerSpace,
   headerSpace,
+  headerHeight,
 }: {
   header: ReactNode;
   children: ReactNode;
   footer: ReactNode;
+  /** Gap between the header and the content. */
   headerSpace: string;
   footerSpace: string;
+  /** The header's own height, needed to keep print and screen in step. */
+  headerHeight: string;
 }) {
+  /*
+   * The page top margin is applied in both media, not just print.
+   *
+   * Most printers cannot print to the trim edge, so the printed sheet needs a
+   * margin. Applying it only under `print:` meant the preview and the printout
+   * disagreed about where the document began, which is the one thing a preview
+   * has to be right about. Six millimetres is inside what an office printer can
+   * reach.
+   */
+  const topMargin = '6mm';
+  /*
+   * In print the header is position:fixed so it repeats on every page, and fixed
+   * takes it out of the flow - the body then starts at the very top of the sheet
+   * and the content slides up underneath the header. On screen the header is
+   * sticky, which stays in the flow and pushes the body down. The two therefore
+   * disagree by the header's height, and only the print side needs a spacer.
+   */
+  const printSpacer = `calc(${topMargin} + ${headerHeight})`;
+
   return (
     <div className="bg-white text-slate-800 flex flex-col min-h-[297mm] print:min-h-0">
       {/* The page gutter is on all three bands, in both media. An earlier
@@ -163,7 +193,8 @@ function Sheet({
           up on paper, because the screen preview is scaled and nobody compares
           it against a ruler. */}
       <div
-        className="shrink-0 px-[14mm] bg-white sticky top-0 z-20 print:fixed print:top-0 print:left-0 print:right-0 print:w-[210mm] print:pt-[10mm]"
+        className="shrink-0 px-[14mm] bg-white sticky top-0 z-20 print:fixed print:top-0 print:left-0 print:right-0 print:w-[210mm]"
+        style={{ paddingTop: topMargin }}
       >
         {header}
       </div>
@@ -172,6 +203,7 @@ function Sheet({
         className="flex-1 px-[14mm]"
         style={{ paddingTop: headerSpace, paddingBottom: footerSpace }}
       >
+        <div className="hidden print:block" style={{ height: printSpacer }} />
         {children}
       </div>
 
@@ -205,6 +237,7 @@ function TntTemplate({ doc }: { doc: PreviewDoc }) {
     <Sheet
       headerSpace="32mm"
       footerSpace="18mm"
+      headerHeight="11mm"
       header={
         <div className="flex items-center gap-2.5">
           <div className="w-9 h-9 rounded-lg bg-gradient-to-br from-amber-300 to-amber-500 flex items-center justify-center shrink-0">
@@ -398,96 +431,210 @@ function TntTemplate({ doc }: { doc: PreviewDoc }) {
 // ---------------------------------------------------------------------------
 // HYPE
 // ---------------------------------------------------------------------------
+const LIME = '#C3E800';
 
-const LIME = '#D4FF00';
-
+/**
+ * HYPE. Rebuilt from measurements taken off the office's own PDFs rather than
+ * from how it looked in a thumbnail, which is how the previous version ended up
+ * wrong in five ways at once.
+ *
+ * What the PDFs actually say, and what this now does:
+ *
+ * - The lime is #C3E800. It had been #D4FF00, guessed.
+ * - The letterhead is a black ribbon with a notched right edge overlapping a
+ *   lime band that runs to the right edge, with the address BELOW the band on
+ *   white. The address had been put inside the lime block, which is not where it
+ *   is on the paper.
+ * - The table columns are not the same on the two document types. A quotation
+ *   gives the Total column 42% and Details 30%; an invoice gives Details 48% and
+ *   Total 21%, because its header is "Grand Total (Include Tax 0,5%)" on two
+ *   lines. One set of widths cannot be right for both.
+ * - The body cells are centred and generously padded. They were left-aligned and
+ *   tight.
+ * - There is no footer and no "Approve by" block. Both were invented. The paper
+ *   has the company name and the signatory at the bottom left, unsigned and
+ *   un-underlined, and nothing else.
+ *
+ * The quotation prints its date in capitals ("11 SEPTEMBER 2026") and the
+ * invoice does not ("15 Juni 2026"). That inconsistency is in the office's own
+ * documents, so it is reproduced rather than quietly tidied up.
+ */
 function HypeTemplate({ doc }: { doc: PreviewDoc }) {
   const isInvoice = doc.docType === 'INVOICE';
 
+  // Measured off the two PDFs, as a share of the table's width.
+  const columns = isInvoice
+    ? { pkg: '17%', details: '48%', period: '15%', total: '21%' }
+    : { pkg: '17%', details: '30%', period: '12%', total: '42%' };
+
   return (
     <Sheet
-      headerSpace="30mm"
-      footerSpace="16mm"
+      headerSpace="8mm"
+      /* Reserves room so long content never runs under the fixed footer. */
+      footerSpace="67mm"
+      headerHeight="42mm"
       header={
-        <div className="flex items-stretch" style={{ margin: '0 -14mm' }}>
-          <div className="w-[38%] bg-slate-900 px-4 py-2.5 flex items-center">
-            <span className="text-[20px] font-black tracking-tight" style={{ color: LIME }}>HYPE</span>
-          </div>
-          <div className="flex-1 px-4 py-1.5 text-[7.5px] leading-snug text-slate-900" style={{ background: LIME }}>
-            <div className="text-right">
-              Ruko Dynasty Walk Alam Sutera No 16, Jl. Jalur Sutera Raya<br />
-              Kav 29C No 16, Pakualaman, Kec. Serpong Utara, Tangerang Selatan, Banten 15320
+        <div className="relative" style={{ margin: '0 -14mm', height: '42mm' }}>
+          {/* The lime band runs from a quarter of the way across to the right
+              trim edge, and only 13.7mm deep. */}
+          <div
+            className="absolute top-0"
+            style={{ left: '26.4%', right: 0, height: '13.7mm', background: LIME }}
+          />
+          {/* The black ribbon: full height on the left, with a notch cut out of
+              its right edge below the band. clip-path because the notch is the
+              whole identity of the letterhead and a border cannot make it. */}
+          <div
+            className="absolute top-0 left-0 z-10"
+            style={{
+              width: '39.1%',
+              height: '42mm',
+              background: '#000',
+              clipPath: 'polygon(0 0, 64% 0, 100% 30%, 64% 100%, 0 100%)',
+            }}
+          />
+          <span
+            className="absolute z-20 font-black tracking-tight"
+            style={{ left: '4.9%', top: '15mm', fontSize: '26px', color: LIME }}
+          >
+            HYPE
+          </span>
+
+          {/* The address sits on white, right-aligned, below the band and to the
+              right of the ribbon. */}
+          <div
+            className="absolute text-right leading-[1.32] text-slate-900"
+            style={{ right: '5%', top: '17.2mm', fontSize: '11pt' }}
+          >
+            Ruko Dynasty Walk Alam Sutera No 16, Jl. Jalur Sutera Raya
+            <br />
+            Kav 29C No 16, Pakualam, Kec. Serpong Utara, Tangerang
+            <br />
+            Selatan, Banten 15320
+            <div className="mt-[13pt]">
+              hyprojectt@gmail.com
+              <br />+62 857-7411-2604
             </div>
-            <div className="text-right mt-0.5">hyprojectt@gmail.com &nbsp;+62 857-7411-2604</div>
           </div>
         </div>
       }
       footer={
-        <div
-          className="-mx-[14mm] flex items-center gap-3 border-t-[3px] px-[14mm] py-2"
-          style={{ borderColor: LIME }}
-        >
-          <span className="text-[8px] font-black uppercase tracking-widest">PT Synera Kreatif Grup</span>
-          <div className="h-0.5 flex-1 bg-slate-900" />
-          <span className="text-[7.5px] text-slate-500">hyprojectt@gmail.com &middot; +62 857-7411-2604</span>
+        /* Not a footer bar. On the paper this is simply the last thing on the
+           page: the company name, a gap, then the signatory - unsigned, no
+           "Approve by" on the right.
+
+           The padding is inside the block, not on the sheet. The footer is
+           print:fixed bottom:0, so the sheet's footerSpace reserves room for it
+           but does not move it; without this the last line sat on the trim edge
+           instead of the 10%-up position the original has. */
+        <div className="text-[11pt] text-slate-900 print:break-inside-avoid" style={{ paddingBottom: '28mm' }}>
+          <div className="font-normal">PT SYNERA KREATIF GRUP</div>
+          <div className="mt-[24mm]">
+            <div>{doc.signatoryName || '—'}</div>
+            <div>{doc.signatoryTitle || '—'}</div>
+          </div>
         </div>
       }
     >
-      <h2 className="text-[20px] font-black tracking-tight mb-2 print:break-after-avoid">
+      <h2
+        className="font-black tracking-tight print:break-after-avoid"
+        style={{ fontSize: '24pt', marginBottom: '13mm' }}
+      >
         Official {isInvoice ? 'Invoice' : 'Quotation'}
       </h2>
 
-      <div className="flex justify-end text-[10px] mb-3 print:break-after-avoid">
-        <div className="text-right">
-          <div className="tabular-nums break-all">
+      <div className="flex justify-end print:break-after-avoid" style={{ fontSize: '11pt' }}>
+        <div className="text-right tabular-nums">
+          <div className="break-all">
             {doc.number ?? <span className="italic text-slate-400">—</span>}
           </div>
-          <div className="tabular-nums">{formatDate(doc.issueDate, 'id')}</div>
+          {/* A quotation prints its date in capitals and an invoice does not.
+              Both are in the office's own documents, so both are reproduced. */}
+          <div>{formatDate(doc.issueDate, isInvoice ? 'id' : 'id-caps')}</div>
         </div>
       </div>
 
-      <div className="mb-3 print:break-after-avoid">
-        <div className="text-[14px] font-black">
-          {isInvoice ? 'Invoice For' : 'Quotation For'}:{' '}
-          <span className="font-light uppercase tracking-wide">{doc.clientName || '—'}</span>
-        </div>
+      <div className="print:break-after-avoid" style={{ fontSize: '16pt', margin: '9mm 0 7mm' }}>
+        <span className="font-black">{isInvoice ? 'Invoice For' : 'Quotation For'} :</span>{' '}
+        <span className="font-normal">{doc.clientName || '—'}</span>
       </div>
 
-      <table className="w-full border-collapse text-[9.5px] border-2 border-slate-900">
+      <table
+        className="w-full border-collapse"
+        style={{ border: '2px solid #000', fontSize: '7.5pt' }}
+      >
         <thead>
-          <tr style={{ background: LIME }} className="text-slate-900 print:break-after-avoid">
-            <th className="px-3 py-2 text-left w-36">Package</th>
-            <th className="px-3 py-2 text-center">Details</th>
-            <th className="px-3 py-2 text-center w-24">Period</th>
-            <th className="px-3 py-2 text-center w-44">
-              {isInvoice && doc.taxRate !== null
-                ? `Grand Total (Include Tax ${doc.taxRate}%)`
-                : 'Total'}
+          <tr style={{ background: LIME }} className="print:break-after-avoid">
+            <th
+              className="px-2 py-2 text-center font-bold"
+              style={{ width: columns.pkg, color: '#000', fontSize: '9pt' }}
+            >
+              Package
+            </th>
+            <th
+              className="px-2 py-2 text-center font-bold"
+              style={{ width: columns.details, color: '#000', fontSize: '9pt', borderLeft: '1px solid #000' }}
+            >
+              Details
+            </th>
+            <th
+              className="px-2 py-2 text-center font-bold"
+              style={{ width: columns.period, color: '#000', fontSize: '9pt', borderLeft: '1px solid #000' }}
+            >
+              Period
+            </th>
+            <th
+              className="px-2 py-2 text-center font-bold"
+              style={{ width: columns.total, color: '#000', fontSize: '9pt', borderLeft: '1px solid #000' }}
+            >
+              {isInvoice ? (
+                <>
+                  Grand Total
+                  <br />
+                  (Include Tax {String(doc.taxRate ?? 0).replace('.', ',')}%)
+                </>
+              ) : (
+                'Total'
+              )}
             </th>
           </tr>
         </thead>
         <tbody>
           {doc.items.map((it, i) => (
-            <tr key={i} className="border-b-2 border-slate-900 align-middle print:break-inside-avoid">
-              <td className="px-3 py-3">
-                <div className="font-black text-[10.5px] leading-snug">{it.title}</div>
+            <tr key={i} className="print:break-inside-avoid" style={{ borderTop: '1px solid #000' }}>
+              <td
+                className="px-3 text-center align-middle font-bold"
+                style={{ fontSize: '10pt', padding: '9mm 3mm' }}
+              >
+                {it.title}
               </td>
-              <td className="px-3 py-3">
-                <div className="flex justify-center">
-                  <div className="w-full max-w-[240px]">
-                    <Description text={it.description} />
-                  </div>
+              <td
+                className="px-3 text-center align-middle"
+                style={{ borderLeft: '1px solid #000', padding: '9mm 3mm' }}
+              >
+                <div style={{ maxWidth: '46mm', margin: '0 auto' }}>
+                  <CentredDescription text={it.description} />
                 </div>
               </td>
-              <td className="px-3 py-3 text-center font-bold text-[8.5px]">{it.period || '-'}</td>
-              <td className="px-3 py-3 text-center font-black tabular-nums whitespace-nowrap">
-                {isInvoice && doc.taxRate !== null ? rupiah(doc.grandTotal) : rupiah(it.price)}
+              <td
+                className="px-3 text-center align-middle"
+                style={{ borderLeft: '1px solid #000', padding: '9mm 3mm' }}
+              >
+                {it.period || '-'}
+              </td>
+              <td
+                className="px-3 text-center align-middle font-bold"
+                style={{ borderLeft: '1px solid #000', padding: '9mm 3mm', fontSize: '10pt' }}
+              >
+                {isInvoice && doc.taxRate !== null
+                  ? rupiah(Math.round((doc.subtotal * (100 + doc.taxRate)) / 100))
+                  : rupiah(it.price)}
               </td>
             </tr>
           ))}
           {doc.items.length === 0 && (
             <tr>
-              <td colSpan={4} className="px-3 py-10 text-center text-slate-300 italic">
+              <td colSpan={4} className="text-center italic text-slate-300" style={{ padding: '9mm' }}>
                 Belum ada item
               </td>
             </tr>
@@ -495,21 +642,41 @@ function HypeTemplate({ doc }: { doc: PreviewDoc }) {
         </tbody>
       </table>
 
-      <div className="mt-2.5 text-[8.5px] print:break-inside-avoid">
+      <div className="mt-2" style={{ fontSize: '11pt' }}>
         {isInvoice ? (
-          <div className="space-y-0.5">
-            <div className="font-black">Payment Method Information:</div>
+          <div className="leading-[1.4]">
+            <div className="font-bold">Payment Method Information:</div>
             {doc.bankName && <div>{doc.bankName}</div>}
             {doc.bankAccountName && <div>{doc.bankAccountName}</div>}
             {doc.bankAccountNumber && <div className="tabular-nums">{doc.bankAccountNumber}</div>}
           </div>
         ) : (
-          <div className="italic">*Prices quoted are exclusive of tax</div>
+          <div style={{ fontSize: '10pt' }}>*Prices quoted are exclusive of tax</div>
         )}
       </div>
-
-      <Signatures doc={doc} companyLine="PT SYNERA KREATIF GRUP" />
     </Sheet>
+  );
+}
+
+/**
+ * HYPE prints its descriptions centred, with a clear gap between paragraphs and
+ * a tight one between wrapped lines of the same paragraph. The left-aligned,
+ * uniform version read as a different document.
+ */
+function CentredDescription({ text }: { text: string | null | undefined }) {
+  if (!text?.trim()) return null;
+  return (
+    <div className="text-center text-slate-800">
+      {text.split(/\r?\n/).map((line, i) => {
+        const t = line.trim();
+        if (!t) return <div key={i} style={{ height: '6pt' }} />;
+        return (
+          <div key={i} className="print:break-inside-avoid" style={{ lineHeight: '9pt' }}>
+            {t}
+          </div>
+        );
+      })}
+    </div>
   );
 }
 
