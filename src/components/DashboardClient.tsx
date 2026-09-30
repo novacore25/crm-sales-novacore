@@ -822,10 +822,22 @@ export default function DashboardClient({
           </div>
 
           <div className="bg-white rounded-3xl border border-slate-200 p-6 md:p-8 shadow-sm flex flex-col h-[400px] md:h-[420px]">
-            <h4 className="text-sm font-black text-slate-900 uppercase tracking-widest mb-2 flex items-center gap-2 shrink-0">
+            <h4 className="text-sm font-black text-slate-900 uppercase tracking-widest mb-1 flex items-center gap-2 shrink-0">
               <div className="w-1.5 h-4 bg-indigo-600 rounded-full"></div>
               Individual Target Contribution
             </h4>
+            {/* Every figure in this panel - chats, meetings, revenue - covers the
+                same period, and the panel says which. The money column used to
+                be all-time while the counts were windowed, so a September
+                filter showed September activity next to a lifetime total. */}
+            <p className="text-[10px] text-slate-400 mb-4 shrink-0 leading-relaxed">
+              {filterStart && filterEnd
+                ? `Periode ${formatID(filterStart)} – ${formatID(filterEnd)}`
+                : 'Semua periode'}
+              {filterAdmin !== 'ALL' ? ` · PIC ${filterAdmin}` : ''}
+              {' · '}
+              {contributions.length} orang
+            </p>
             {unattributedRevenue > 0 && (
               // Nine won deals have no funnel_history row and no pic_name, so
               // nobody can be credited for Rp 1.92 billion. Flagged here rather
@@ -918,7 +930,13 @@ export default function DashboardClient({
                       <div className="flex justify-between text-[9px] font-black uppercase tracking-widest text-slate-400 mb-1.5">
                         <span>Meet ({adminMeet})</span>
                         {filterStart && filterEnd ? (
-                          <span>Target Mingguan: {personalTarget?.targetMeeting ? Math.round(personalTarget.targetMeeting / 4) : 'Belum diset'}</span>
+                          <span>
+                            {isUnattributed
+                              ? 'Tanpa target'
+                              : personalTarget?.targetMeeting
+                                ? `Target (${Math.round(prorate(personalTarget.targetMeeting))} di periode ini)`
+                                : 'Belum diset'}
+                          </span>
                         ) : null}
                       </div>
                       <div className="h-1.5 bg-slate-100 rounded-full overflow-hidden">
@@ -930,7 +948,17 @@ export default function DashboardClient({
                       <div className="flex justify-between text-[9px] font-black uppercase tracking-widest text-slate-400 mb-1.5">
                         <span>Revenue</span>
                         {filterStart && filterEnd ? (
-                          <span>Target: {personalTarget?.targetRevenue ? new Intl.NumberFormat('id-ID', { notation: 'compact', style: 'currency', currency: 'IDR', maximumFractionDigits: 1 }).format(personalTarget.targetRevenue) : 'Belum diset'}</span>
+                          /* The proration the bar uses, not the raw monthly
+                             target. Showing the monthly figure next to a bar
+                             measured against a weekly slice made the two
+                             disagree by a factor of roughly four. */
+                          <span>
+                            {isUnattributed
+                              ? 'Tanpa target'
+                              : personalTarget?.targetRevenue
+                                ? `Target (${new Intl.NumberFormat('id-ID', { notation: 'compact', style: 'currency', currency: 'IDR', maximumFractionDigits: 1 }).format(prorate(personalTarget.targetRevenue))} di periode ini)`
+                                : 'Belum diset'}
+                          </span>
                         ) : null}
                       </div>
                       <div className="h-1.5 bg-slate-100 rounded-full overflow-hidden">

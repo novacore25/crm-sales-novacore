@@ -320,10 +320,21 @@ export async function getIndividualContributions(filters: {
     -- the win owns it; if that row is anonymous, the last person to touch the
     -- lead does; if neither, the deal is unattributed and lands on '-'.
     --
-    -- Unlike the activity side, this deliberately ignores the date window - a
-    -- won deal is booked revenue, and the same reasoning as getDashboardStats
-    -- applies. It does honour the PIC filter, so filtering to one rep shows that
-    -- rep's book rather than the whole team's, which is the point of the filter.
+    -- The date window IS applied to the win lookup below, on both laterals.
+    --
+    -- It used to be ignored here, on the grounds that a closed deal is booked
+    -- revenue. That made the panel mix scopes: chat and meeting counts followed
+    -- the selected month while the money column showed every deal the company
+    -- has ever closed. Filtering to September and seeing a rupiah total that
+    -- includes a 2024 deal is not a scope anyone can reason about, and the
+    -- proration of the target bar was being compared against a number from a
+    -- different period.
+    --
+    -- No window selected means no predicate, so the panel falls back to
+    -- all-time, which is what an unfiltered view should show.
+    --
+    -- The PIC filter is honoured too, so filtering to one rep shows that rep's
+    -- book rather than the whole team's.
     win_owner AS (
       -- The owner label is NOT '-'.
       --
@@ -349,10 +360,15 @@ export async function getIndividualContributions(filters: {
         COALESCE(win.deal_value, vl.deal_value, 0) AS revenue
       FROM valid_leads vl
       LEFT JOIN LATERAL (
-        SELECT f.by_user_name, f.deal_value
+        -- The matched flag exists so the WHERE below can tell "no win row in
+        -- this window" from "win row whose name happens to be null". Without
+        -- it the two cases are indistinguishable.
+        SELECT f.by_user_name, f.deal_value, true AS matched
         FROM funnel_history f
         WHERE f.lead_id = vl.id AND f.stage = 'Close Win'
           AND (${admin}::text IS NULL OR f.by_user_name = ${admin})
+          AND (${startDate}::timestamptz IS NULL OR f.date_occurred >= ${startDate})
+          AND (${endDate}::timestamptz IS NULL OR f.date_occurred <= ${endDate})
         ORDER BY f.date_occurred DESC, f.created_at DESC
         LIMIT 1
       ) win ON TRUE
@@ -363,10 +379,62 @@ export async function getIndividualContributions(filters: {
         ORDER BY t.date_occurred DESC, t.created_at DESC
         LIMIT 1
       ) last_touch ON TRUE
-      WHERE vl.status = 'Close Win'
+      -- "Won" has two meanings and the panel has to pick the one the reader
+      -- means.
+      --
+      -- Six leads have a Close Win row dated 2 September but their current
+      -- status is Hold, all recorded by the same rep on the same day. They are
+      -- worth Rp 30.25 million, and the original app counted them - which is why
+      -- the very first screenshot of this dashboard showed Rp 442,997,156.
+      --
+      -- Requiring status = 'Close Win' dropped them and moved the September
+      -- total to Rp 412,747,156, so the panel would have disagreed with the
+      -- scorecard's own deal count on the same screen.
+      --
+      -- So a lead qualifies if either its current status says it is won, OR it
+      -- was won inside the window being viewed. A windowed view is a question
+      -- about what happened during that period, and a Hold recorded afterwards
+      -- does not retroactively make a September close something else. The
+      -- unfiltered view falls through to status alone, which is the "where do
+      -- these leads stand now" reading.
+      WHERE (
+        vl.status = 'Close Win'
         AND (
           (${admin}::text IS NULL OR COALESCE(win.by_user_name, last_touch.by_user_name) = ${admin})
         )
+        -- A deal only belongs to the window if its win was recorded there.
+        --
+        -- This predicate looked unnecessary and was not. The join is a LEFT
+        -- LATERAL, so a lead whose win row sits outside the window still
+        -- produces a row - and COALESCE then quietly substitutes the lead's own
+        -- deal_value. Filtering to September returned all 48 lifetime deals at
+        -- Rp 3.83 billion instead of the 25 that actually closed that month.
+        --
+        -- Only when a window is set. With no dates the lateral matches every
+        -- win and this is true for every won lead, so the unfiltered panel
+        -- keeps its all-time behaviour.
+        AND (
+          (${startDate}::timestamptz IS NULL AND ${endDate}::timestamptz IS NULL)
+          OR win.matched IS NOT NULL
+        )
+      )
+      -- Won inside the window, whatever the status became afterwards.
+      --
+      -- Gated on a window actually being set. Without that gate this branch
+      -- fires in the unfiltered view too, and the matched flag is true for
+      -- every lead that has ever had a Close Win row - which pulled the six
+      -- Hold leads into the all-time panel and took it from 48 to 54.
+      --
+      -- The admin filter is repeated rather than factored out because the two
+      -- branches do not have the same shape: the first requires a current
+      -- Close Win, this one does not.
+      OR (
+        (${startDate}::timestamptz IS NOT NULL OR ${endDate}::timestamptz IS NOT NULL)
+        AND win.matched IS NOT NULL
+        AND (
+          (${admin}::text IS NULL OR COALESCE(win.by_user_name, last_touch.by_user_name) = ${admin})
+        )
+      )
       ORDER BY vl.id
     ),
     revenue_by_rep AS (

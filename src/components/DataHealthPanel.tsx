@@ -76,32 +76,60 @@ export default function DataHealthPanel({ rows }: { rows: DataHealthRow[] }) {
       </div>
 
       {/* The two sub-groups that need different fixes, called out separately so
-          the lord does not have to read 100 rows to find the 9 with no owner. */}
+          the lord does not have to read 100 rows to find the ones with no
+          owner. Each says what to do, not just what is wrong - a count of
+          broken rows is only useful if someone is going to go and fix them. */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mb-4">
         {noHistory.length > 0 && (
           <div className="bg-rose-50 border border-rose-200 rounded-xl px-4 py-3">
             <p className="text-[10px] font-black uppercase tracking-widest text-rose-700 mb-1">
-              Tanpa riwayat sama sekali
+              1. Tanpa riwayat sama sekali
             </p>
-            <p className="text-[11px] text-slate-600 leading-relaxed">
-              <span className="font-black text-rose-700">{noHistory.length} lead</span> tidak punya
-              satu pun baris funnel, jadi tidak ada catatan siapa yang menutupnya. Nilainya{' '}
-              <span className="font-black text-rose-700">
-                {rupiah(noHistory.reduce((s, r) => s + r.revenue, 0))}
-              </span>{' '}
-              dan muncul di Individual Target Contribution sebagai baris{' '}
-              <span className="font-bold">&quot;Tanpa PIC&quot;</span>.
+            <p className="text-[11px] text-slate-600 leading-relaxed mb-2">
+              <span className="font-black text-rose-700">{noHistory.length} lead</span> ({rupiah(noHistory.reduce((s, r) => s + r.revenue, 0))})
+              tidak punya satu pun baris funnel, jadi tidak ada catatan siapa yang menutupnya. They'd
+              muncul di Individual Target Contribution sebagai baris
+              <span className="font-bold"> &quot;Tanpa PIC&quot;</span>.
+            </p>
+            <p className="text-[11px] text-rose-800 leading-relaxed">
+              <span className="font-black">Yang perlu dilakukan:</span> buka tiap lead, isi PIC-nya,
+              lalu catat tahap-tahapnya (Responsed, Set Meeting, Close Win) lengkap dengan tanggal yang
+              sebenarnya. Kalau deal ini memang belum pernah terjadi, ubah statusnya supaya tidak
+              terhitung revenue.
             </p>
           </div>
         )}
         {unattributed.length > 0 && (
           <div className="bg-orange-50 border border-orange-200 rounded-xl px-4 py-3">
             <p className="text-[10px] font-black uppercase tracking-widest text-orange-700 mb-1">
-              Tidak ada PIC
+              2. Punya riwayat tapi tanpa nama
             </p>
-            <p className="text-[11px] text-slate-600 leading-relaxed">
+            <p className="text-[11px] text-slate-600 leading-relaxed mb-2">
               <span className="font-black text-orange-700">{unattributed.length} lead</span> punya
-              riwayat tapi tidak ada nama yang tercatat. Pilih PIC-nya manual dari halaman lead.
+              catatan tahap, tapi tidak ada nama yang masuk. Datanya ada, orangnya yang hilang.
+            </p>
+            <p className="text-[11px] text-orange-800 leading-relaxed">
+              <span className="font-black">Yang perlu dilakukan:</span> buka tiap lead, isi PIC di
+              kolomnya. Tidak perlu tambah stage baru - cukup nama, karena tahapnya sudah tercatat.
+            </p>
+          </div>
+        )}
+        {rows.length - noHistory.length - unattributed.length > 0 && (
+          <div className="bg-amber-50 border border-amber-200 rounded-xl px-4 py-3">
+            <p className="text-[10px] font-black uppercase tracking-widest text-amber-800 mb-1">
+              3. Tahap belum lengkap
+            </p>
+            <p className="text-[11px] text-slate-600 leading-relaxed mb-2">
+              <span className="font-black text-amber-800">
+                {rows.length - noHistory.length - unattributed.length} lead
+              </span>{' '}
+              sudah punya sebagian tahap, tapi ada yang belum dicatat.
+            </p>
+            <p className="text-[11px] text-amber-800 leading-relaxed">
+              <span className="font-black">Yang perlu dilakukan:</span> tambahkan tahap yang hilang
+              (kolom <span className="font-bold">kurang</span> di tabel), dengan tanggal yang
+              sebenarnya. Penting: isi tanggal yang benar, bukan yang bikin angka kelihatan bagus -
+              kalau tanggalnya di luar periode yang sedang dilihat, angkanya tidak akan berubah.
             </p>
           </div>
         )}
