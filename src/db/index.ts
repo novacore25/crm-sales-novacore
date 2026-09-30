@@ -30,15 +30,23 @@ function createPool() {
     idleTimeoutMillis: 30_000,
     connectionTimeoutMillis: 10_000,
     keepAlive: true,
-  });
 
-  // node-postgres returns NUMERIC (oid 1700) as a string to avoid precision
-  // loss. Every revenue total in this app is well inside IEEE-754 safe range,
-  // and the legacy client code did arithmetic directly on these values, so
-  // parse them to numbers here. Without this, `+=` on deal values silently
-  // becomes string concatenation.
-  created.on('connect', (client) => {
-    client.query("SET TIME ZONE 'UTC'");
+    // The server runs UTC; the team reads WIB. Pinning the session timezone
+    // here means every timestamp this app stores or compares is UTC, and the
+    // dashboard's WIB conversion stays a pure presentation concern.
+    //
+    // This is deliberately NOT done in a `pool.on('connect')` handler. That
+    // fires while node-postgres is still finishing the handshake, so the
+    // SET lands on a client that is already running another query - which is
+    // where this deprecation warning came from:
+    //
+    //   Calling client.query() when the client is already executing a query
+    //   is deprecated and will be removed in pg@9.0
+    //
+    // It works today and breaks on upgrade. `options` is sent as part of the
+    // startup packet, so Postgres applies it before the pool considers the
+    // connection usable and no second query is ever in flight.
+    options: "-c timezone=UTC",
   });
 
   return created;

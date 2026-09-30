@@ -1,75 +1,48 @@
 -- ============================================================================
--- Normalise values that would break the ENUM restore
+-- ARCHIVED - do not run this.
 -- ============================================================================
--- Run each statement in the Supabase SQL Editor, one at a time.
+-- The Supabase project was deleted on 2026-09-30, after the delta sync. The
+-- instructions below told someone to run UPDATE statements in the Supabase SQL
+-- Editor, and that is exactly what makes this file dangerous: the project is
+-- gone, but these statements would still run correctly against a Postgres that
+-- happens to be reachable, including the production database.
 --
--- Run them in this order. Step 1 is a backup - do not skip it, even though
--- the changes are small and reversible.
+-- These changes are already applied. `migrate.sh` step 4 performs them in the
+-- TARGET as part of the migration, and the counts below were confirmed at the
+-- time:
+--
+--   53 rows   status        'Input' -> 'Leads'
+--    2 rows   interest_level 'Low'   -> '-'
+--
+-- Leaving executable SQL in docs/ invites someone to run it against whatever
+-- database they are currently pointed at. Keeping it as a comment block means
+-- the reasoning survives without the trigger.
+--
+-- Original instructions, preserved for the record only:
+--
+--   Step 1 - BACKUP (read-only)
+--     SELECT id, brand_name, status AS status_sekular
+--     FROM public.leads WHERE status = 'Input' ORDER BY brand_name;
+--
+--   Step 2 - NORMALISE
+--     'Input' and 'Leads' mean the same thing: the brand is in the database but
+--     nobody has contacted it. 'Chated' means the first contact happened.
+--
+--     UPDATE public.leads SET status = 'Leads' WHERE status = 'Input';
+--
+--     'Low' is not a valid interest level. The valid set is HOT / WARM / COLD /
+--     '-', and 'Low' was written by an import that used the task *priority*
+--     vocabulary by mistake. Two rows, no usable signal, so they become unset.
+--
+--     UPDATE public.leads SET interest_level = '-' WHERE interest_level = 'Low';
+--
+--   Step 3 - VERIFY (read-only)
+--     SELECT status, count(*) FROM public.leads
+--      WHERE status NOT IN ('Leads','Chated','Responsed','Set Meeting','Hold',
+--                           'Close Win','Close Lost','Failed') GROUP BY status;
+--     -- expect 0 rows
+--
+--     SELECT interest_level, count(*) FROM public.leads
+--      WHERE interest_level NOT IN ('HOT','WARM','COLD','-') GROUP BY interest_level;
+--     -- expect 0 rows
 -- ============================================================================
-
-
--- ────────────────────────────────────────────────────────────────────────────
--- STEP 1 - BACKUP (read-only, run first, save the output)
--- ────────────────────────────────────────────────────────────────────────────
--- Only 55 rows are affected in total. Save this result somewhere, or simply
--- keep it in the conversation history - it is the reversal data for step 2.
-
-SELECT id, brand_name, status AS status_sekarang
-FROM public.leads
-WHERE status = 'Input'
-ORDER BY brand_name;
-
-SELECT id, brand_name, interest_level AS level_sekarang
-FROM public.leads
-WHERE interest_level = 'Low'
-ORDER BY brand_name;
-
-
--- ────────────────────────────────────────────────────────────────────────────
--- STEP 2 - NORMALISE
--- ────────────────────────────────────────────────────────────────────────────
--- 'Input' and 'Leads' mean the same thing: the brand is in the database but
--- nobody has contacted it yet. The next stage, 'Chated', means the first
--- contact happened. So 'Input' becomes 'Leads'.
---
--- Note this also improves the OLD app: 'Input' was never in its stage list,
--- so those 53 rows were already rendering oddly there.
-
-UPDATE public.leads
-SET status = 'Leads'
-WHERE status = 'Input';
-
--- 'Low' is not a valid interest level. The valid set is HOT / WARM / COLD / '-',
--- and 'Low' was written by an import script that used the wrong vocabulary
--- (Low/Medium/High is the task *priority* scale, not the interest scale).
--- These two rows carry no usable signal, so they become '-' (unset), which is
--- what the other 6,176 rows overwhelmingly are.
-
-UPDATE public.leads
-SET interest_level = '-'
-WHERE interest_level = 'Low';
-
-
--- ────────────────────────────────────────────────────────────────────────────
--- STEP 3 - VERIFY (read-only)
--- ────────────────────────────────────────────────────────────────────────────
--- Both should now come back empty.
-
-SELECT status, count(*) FROM public.leads
-WHERE status NOT IN ('Leads','Chated','Responsed','Set Meeting','Hold','Close Win','Close Lost','Failed')
-GROUP BY status;
-
-SELECT interest_level, count(*) FROM public.leads
-WHERE interest_level NOT IN ('HOT','WARM','COLD','-')
-GROUP BY interest_level;
-
--- Expected distribution after the change:
---   Leads     2793 + 53 = 2846
---   Chated    2961
---   Responsed  399
---   Set Meeting 57
---   Hold        43
---   Close Lost  46
---   Close Win   47
---   total      6399
-SELECT status, count(*) FROM public.leads GROUP BY status ORDER BY 2 DESC;
