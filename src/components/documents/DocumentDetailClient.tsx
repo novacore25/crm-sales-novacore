@@ -11,7 +11,8 @@ import {
   getNumberContext,
   issueDocument,
 } from '@/app/actions/document-actions';
-import { DocumentPreview, type PreviewDoc } from './DocumentPreview';
+import type { PreviewDoc } from './DocumentPreview';
+import { PreviewPane } from './PreviewPane';
 import type { UserProfile } from '@/types';
 import { cn } from '@/lib/utils';
 
@@ -41,6 +42,7 @@ export default function DocumentDetailClient({
   const [issueNumber, setIssueNumber] = useState('');
   const [issueRecent, setIssueRecent] = useState<string[]>([]);
   const [issueExample, setIssueExample] = useState<string | null>(null);
+  const [previewExpanded, setPreviewExpanded] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -248,14 +250,16 @@ export default function DocumentDetailClient({
         </div>
       </header>
 
-      <div className="flex-1 overflow-auto p-4 md:p-8 flex justify-center">
-        <div className="origin-top w-[794px] shrink-0 scale-[0.8] xl:scale-100">
-          <div className="shadow-xl ring-1 ring-slate-300 bg-white min-h-[1123px] w-[794px]">
-            <DocumentPreview doc={preview} />
-          </div>
-          <div className="h-[898px] xl:h-0" />
-        </div>
-      </div>
+      {/* Same zoom and drag affordance as the form's preview. Reading a stored
+          document is the whole point of this page, and at a fixed 0.8 scale the
+          9px body text was not readable. */}
+      <PreviewPane
+        doc={preview}
+        summary={`${preview.items.length} item · ${rupiah(preview.grandTotal)}`}
+        expanded={previewExpanded}
+        onToggleExpanded={() => setPreviewExpanded((v) => !v)}
+        className="flex-1 min-h-0 border-l-0"
+      />
 
       {issueOpen && (
         <div className="fixed inset-0 z-[60] bg-slate-950/50 backdrop-blur-sm flex items-center justify-center p-4">

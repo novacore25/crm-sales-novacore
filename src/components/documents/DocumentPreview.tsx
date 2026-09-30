@@ -161,7 +161,7 @@ function Sheet({
           up on paper, because the screen preview is scaled and nobody compares
           it against a ruler. */}
       <div
-        className="shrink-0 px-[14mm] print:fixed print:top-0 print:left-0 print:right-0 print:z-20 print:w-[210mm] bg-white print:pt-[10mm]"
+        className="shrink-0 px-[14mm] bg-white sticky top-0 z-20 print:fixed print:top-0 print:left-0 print:right-0 print:w-[210mm] print:pt-[10mm]"
       >
         {header}
       </div>
@@ -174,7 +174,7 @@ function Sheet({
       </div>
 
       <div
-        className="shrink-0 px-[14mm] print:fixed print:bottom-0 print:left-0 print:right-0 print:z-20 print:w-[210mm] bg-white print:pb-[6mm]"
+        className="shrink-0 px-[14mm] bg-white sticky bottom-0 z-20 print:fixed print:bottom-0 print:left-0 print:right-0 print:w-[210mm]"
       >
         {footer}
       </div>
@@ -216,7 +216,7 @@ function TntTemplate({ doc }: { doc: PreviewDoc }) {
         /* Full-bleed: the bar runs off both trim edges and sits on the bottom of
            the sheet, as on the paper. The negative margin cancels the page
            gutter applied by the sheet. */
-        <div style={{ background: MAROON }} className="-mx-[14mm] -mb-[6mm] flex items-center gap-2 px-[14mm] py-2.5 text-white print:mb-0">
+        <div style={{ background: MAROON }} className="-mx-[14mm] flex items-center gap-2 px-[14mm] py-2.5 text-white">
           <div className="h-0.5 flex-1 bg-amber-400" />
           <span className="text-[7.5px] font-bold">tntkreatif.com</span>
           <div className="h-0.5 w-14 bg-amber-400" />
@@ -415,7 +415,7 @@ function HypeTemplate({ doc }: { doc: PreviewDoc }) {
       }
       footer={
         <div
-          className="-mx-[14mm] -mb-[6mm] flex items-center gap-3 border-t-[3px] px-[14mm] py-2 print:mb-0"
+          className="-mx-[14mm] flex items-center gap-3 border-t-[3px] px-[14mm] py-2"
           style={{ borderColor: LIME }}
         >
           <span className="text-[8px] font-black uppercase tracking-widest">PT Synera Kreatif Grup</span>

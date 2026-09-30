@@ -12,7 +12,8 @@ import {
 } from '@/app/actions/document-actions';
 import { computeTotals } from '@/lib/document-totals';
 import { ComboBox } from './ComboBox';
-import { DocumentPreview, type PreviewDoc } from './DocumentPreview';
+import type { PreviewDoc } from './DocumentPreview';
+import { PreviewPane } from './PreviewPane';
 import { cn } from '@/lib/utils';
 
 interface ItemDraft {
@@ -54,6 +55,7 @@ export default function DocumentFormClient() {
   const [signatoryTitle, setSignatoryTitle] = useState('');
   const [items, setItems] = useState<ItemDraft[]>([{ ...EMPTY_ITEM }]);
   const [tab, setTab] = useState<'form' | 'preview'>('form');
+  const [previewExpanded, setPreviewExpanded] = useState(false);
   const [bankOptions, setBankOptions] = useState<
     { id: string; bankName: string | null; accountName: string; accountNumber: string | null; branch: string | null }[]
   >([]);
@@ -557,35 +559,21 @@ export default function DocumentFormClient() {
           </div>
         </div>
 
-        {/* live preview */}
-        <div className={cn('lg:w-[46%] xl:w-[42%] bg-slate-200 border-l border-slate-300 overflow-auto p-4 md:p-6', tab === 'form' && 'hidden lg:block')}>
-          <div className="sticky top-0 -mx-1 px-1 pb-3 bg-slate-200/90 backdrop-blur z-10">
-            <div className="flex items-center justify-between">
-              <span className="text-[10px] font-black uppercase tracking-widest text-slate-500 flex items-center gap-1.5">
-                <Eye className="w-3 h-3" />
-                Preview langsung
-              </span>
-              <span className="text-[10px] font-bold text-slate-400 tabular-nums">
-                {preview.items.length} item &middot; {rupiah(preview.grandTotal)}
-              </span>
-            </div>
-          </div>
-
-          {/* A4 is 794 x 1123 px at 96dpi, which is exactly the sheet the
-              print route renders. Scaling the same number by the same factor
-              is what makes the preview trustworthy - a preview at a different
-              proportion from the printed page will always lie about where the
-              page breaks. */}
-          <div className="mx-auto origin-top-left w-[794px] min-h-[1123px] scale-[0.6] sm:scale-[0.68] lg:scale-[0.6]">
-            <div className="shadow-xl ring-1 ring-slate-300 bg-white min-h-[1123px] w-[794px]">
-              <DocumentPreview doc={preview} />
-            </div>
-            {/* Reserves the space the scaled sheet occupies, since transform
-                does not affect layout height. Without it the scrollbar thinks
-                the page is 300px tall and cuts the document off. */}
-            <div className="h-[674px] sm:h-[764px] lg:h-[674px]" />
-          </div>
-        </div>
+        {/* Live preview. The pane owns its own scrolling and zoom; the form
+            column only decides how much width the pane gets. */}
+        <PreviewPane
+          doc={preview}
+          summary={`${preview.items.length} item · ${rupiah(preview.grandTotal)}`}
+          expanded={previewExpanded}
+          onToggleExpanded={() => setPreviewExpanded((v) => !v)}
+          className={cn(
+            'min-h-0',
+            tab === 'form' && 'hidden lg:flex',
+            previewExpanded
+              ? 'lg:w-[78%] xl:w-[74%]'
+              : 'lg:w-[46%] xl:w-[42%]',
+          )}
+        />
       </div>
     </div>
   );
