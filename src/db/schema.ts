@@ -471,16 +471,25 @@ export const documentSeries = pgTable(
     docType: documentTypeEnum('doc_type').notNull(),
 
     /**
-     * House style for the printed number, shown as a hint on the form.
+     * A TEMPLATE for the printed number, not an example of one:
      *
-     * NOT used to generate anything. The office does not yet know what every
-     * segment means - `SA` in one sample, `MCN` in another, and nobody can say
-     * what else exists - so the number is typed by the user and this is only
-     * there to show the convention.
+     *   {seq:3}/{type}-{company}/{code}/{roman}/{yy}
      *
-     * A system that guesses a number and gets it wrong is worse than one that
-     * asks, because a wrong number has already been printed by the time anyone
-     * notices.
+     * Only `{seq}` and `{code}` are ever asked for. `{roman}` and `{yy}` come from
+     * the document's own date, `{type}` and `{company}` from this row, so editing
+     * the date updates the printed number by itself.
+     *
+     * It used to hold the literal string "contoh: 037/QUO-TNT/SA/IX/26", which
+     * no program can interpret - there was no way to tell the running sequence
+     * from the letter code from the month. That is why the form used to ask for
+     * all six parts.
+     *
+     * The padding width lives here rather than being a constant because the
+     * office prints 037 on a quotation and 01 on an invoice. Assuming one width
+     * for both turns 01 into 001, which is a different number.
+     *
+     * Null means the series has no template, and the form falls back to typing
+     * the whole number.
      */
     format: text('format'),
 
@@ -501,6 +510,48 @@ export const documentSeries = pgTable(
     updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow(),
   },
   (t) => [uniqueIndex('document_series_company_type_key').on(t.company, t.docType)],
+);
+
+/**
+ * The letter codes used in document numbers, per series.
+ *
+ * `SA` on a TNT quotation, `MCN` on a TNT invoice. Nobody can say what every
+ * possible code means, so the office types them and anything new is learned -
+ * the same bargain as document_bank_accounts and document_signatories.
+ *
+ * Scoped by series, not by company, because the code belongs to the kind of
+ * document rather than to the company. A shared list would let a quotation print
+ * with the invoice's code, and nothing downstream would catch it.
+ *
+ * A series whose template has no `{code}` segment never shows this list at all.
+ */
+export const documentNumberCodes = pgTable(
+  'document_number_codes',
+  {
+    id: text('id').primaryKey(),
+    seriesId: text('series_id')
+      .notNull()
+      .references(() => documentSeries.id, { onDelete: 'cascade' }),
+    code: text('code').notNull(),
+
+    isActive: boolean('is_active').notNull().default(true),
+
+    /** Most-used first, so the usual code is the first thing offered. */
+    useCount: integer('use_count').notNull().default(0),
+    lastUsedAt: timestamp('last_used_at', { withTimezone: true }),
+
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow(),
+  },
+  (t) => [
+    // Case-insensitive: "sa" and "SA" are one code, and saving both gives the
+    // same code two entries in the dropdown.
+    uniqueIndex('document_number_codes_series_code_key').on(
+      t.seriesId,
+      sql`upper(${t.code})`,
+    ),
+    index('document_number_codes_series_idx').on(t.seriesId),
+  ],
 );
 
 /**

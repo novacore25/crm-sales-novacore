@@ -8,13 +8,16 @@ import {
   createDocument,
   getBankAccounts,
   getDocumentSeries,
+  getNumberCodes,
   getSignatories,
   updateDocument,
 } from '@/app/actions/document-actions';
 import { computeTotals } from '@/lib/document-totals';
+import { composeNumber, extractSegment } from '@/lib/document-number';
 import { ComboBox } from './ComboBox';
 import type { PreviewDoc } from './DocumentPreview';
 import { PreviewPane } from './PreviewPane';
+import { NumberComposer } from './NumberComposer';
 import { cn } from '@/lib/utils';
 
 interface ItemDraft {
@@ -25,6 +28,26 @@ interface ItemDraft {
 }
 
 const EMPTY_ITEM: ItemDraft = { title: '', description: '', period: '', price: '' };
+
+/**
+ * Recovers the sequence and the letter code from a stored number.
+ *
+ * Used when opening a draft for editing, so the composer shows `037` and `SA`
+ * rather than two empty boxes. If the stored number does not match the series'
+ * template - it was typed by hand, or the template changed since - the parts come
+ * back empty and the number is left in manual mode, because silently rebuilding a
+ * number that does not match what is stored would change the document.
+ */
+function seedParts(
+  seed: DocumentFormSeed | undefined,
+  format: string | null,
+): { seq: string; code: string } {
+  if (!seed?.number) return { seq: '', code: '' };
+  const seq = extractSegment(format, seed.number, 'seq');
+  const code = extractSegment(format, seed.number, 'code');
+  if (seq === null && code === null) return { seq: '', code: '' };
+  return { seq: seq ?? '', code: code ?? '' };
+}
 
 const rupiah = (n: number) =>
   new Intl.NumberFormat('id-ID', {
@@ -64,10 +87,27 @@ export default function DocumentFormClient({ seed }: { seed?: DocumentFormSeed }
   const isEdit = !!seed;
 
   const [series, setSeries] = useState<
-    { id: string; label: string | null; company: string; docType: string; format: string | null }[]
+    {
+      id: string;
+      label: string | null;
+      company: string;
+      docType: string;
+      format: string | null;
+      nextNumber: number | null;
+    }[]
   >([]);
   const [seriesId, setSeriesId] = useState(seed?.seriesId ?? '');
-  const [number, setNumber] = useState(seed?.number ?? '');
+  /**
+   * The number the office actually supplies, split into the two parts that
+   * change. A draft being edited is parsed back out of its stored number so the
+   * composer opens showing the real sequence and code rather than blanks.
+   */
+  const [seq, setSeq] = useState('');
+  const [code, setCode] = useState('');
+  /** Set when the user types the whole number by hand instead. */
+  const [manualNumber, setManualNumber] = useState(false);
+  const [manualValue, setManualValue] = useState('');
+  const [codeOptions, setCodeOptions] = useState<{ id: string; code: string }[]>([]);
   const [clientName, setClientName] = useState(seed?.clientName ?? '');
   const [issueDate, setIssueDate] = useState(
     seed?.issueDate ?? new Date().toISOString().slice(0, 10),
@@ -109,6 +149,90 @@ export default function DocumentFormClient({ seed }: { seed?: DocumentFormSeed }
   }, []);
 
   const current = series.find((s) => s.id === seriesId);
+
+  /**
+   * The number that gets saved.
+   *
+   * Composed from the two parts the office supplies plus everything the date and
+   * the series already know, unless the number was typed by hand. Keeping the
+   * decision in one place means the preview, the saved document and the printed
+   * page cannot each come out with a different number.
+   */
+  const composedValue = useMemo(
+    () =>
+      composeNumber({
+        format: current?.format ?? null,
+        seq,
+        code,
+        docType: current?.docType ?? 'QUOTATION',
+        company: current?.company ?? 'TNT',
+        date: issueDate || null,
+      }).value,
+    [current?.format, current?.docType, current?.company, seq, code, issueDate],
+  );
+
+  const number = manualNumber ? manualValue : composedValue;
+
+  /**
+   * Letter codes for the series, and the sequence pre-filled from its suggestion.
+   *
+   * The suggestion is advisory - the office types the number by hand because
+   * nobody can say what every segment means - so it only pre-fills the box. A
+   * draft being edited keeps its own sequence instead, or re-saving an unchanged
+   * draft would quietly renumber it.
+   */
+  useEffect(() => {
+    if (!seriesId) {
+      setCodeOptions([]);
+      return;
+    }
+    let cancelled = false;
+    getNumberCodes(seriesId)
+      .then((rows) => {
+        if (!cancelled) setCodeOptions(rows.map((r) => ({ id: r.id, code: r.code })));
+      })
+      .catch(() => {
+        if (!cancelled) setCodeOptions([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [seriesId]);
+
+  useEffect(() => {
+    if (isEdit) return; // never renumber a draft that is being edited
+    const suggestion = series.find((s) => s.id === seriesId)?.nextNumber;
+    if (suggestion) setSeq(String(suggestion));
+  }, [seriesId, isEdit, series]);
+
+  /**
+   * Split a stored number back into its parts, once, when the series and its
+   * template have arrived. Done here rather than in the initial state because the
+   * template lives on the server.
+   *
+   * If the stored number does not fit the template, the document goes into manual
+   * mode with the number untouched. Rebuilding it from empty parts would print a
+   * different number than the one already saved.
+   */
+  const [seededFromNumber, setSeededFromNumber] = useState(false);
+  useEffect(() => {
+    if (seededFromNumber) return;
+    const format = current?.format ?? null;
+    if (!format) return;
+    if (!seed?.number) {
+      setSeededFromNumber(true);
+      return;
+    }
+    const parts = seedParts(seed, format);
+    if (parts.seq === '' && parts.code === '') {
+      setManualValue(seed.number);
+      setManualNumber(true);
+    } else {
+      setSeq(parts.seq);
+      setCode(parts.code);
+    }
+    setSeededFromNumber(true);
+  }, [current?.format, seed, seededFromNumber]);
 
   /**
    * Bank accounts and signatories, loaded per company.
@@ -336,29 +460,37 @@ export default function DocumentFormClient({ seed }: { seed?: DocumentFormSeed }
         {/* form */}
         <div className={cn('flex-1 overflow-auto p-4 md:p-6 space-y-5', tab === 'preview' && 'hidden lg:block')}>
           {/* The number comes first, before the client and before the items.
-              It is the one field that cannot be worked out from anything else on
-              the form, and the office types it by hand precisely because nobody
-              can say what every segment means. Putting it at the top means the
-              form is answered in the order the document is actually issued. */}
+              Only the two parts that actually change are inputs: the running
+              sequence and the letter code. The month and the year follow the
+              document's date, the type and the company come from the series, so
+              four of the six segments are no longer typed on every document -
+              and a month typed by hand is a month that is wrong sooner or
+              later. */}
           <div className="bg-white rounded-2xl border-2 border-indigo-200 p-5 space-y-4">
             <h2 className="text-[10px] font-black uppercase tracking-widest text-indigo-400">
               1 &middot; Nomor dokumen
             </h2>
-            <label className="block">
-              <input
-                type="text"
-                value={number}
-                onChange={(e) => setNumber(e.target.value)}
-                placeholder={current?.format ?? '000/QUO-TNT/SA/IX/26'}
-                spellCheck={false}
-                autoComplete="off"
-                className="w-full px-3 py-2.5 border border-slate-200 rounded-lg text-sm font-black text-slate-900 outline-none focus:ring-2 focus:ring-indigo-500 tabular-nums"
-              />
-              <span className="text-[10px] text-slate-400 mt-1 block">
-                Ketik manual, persis seperti akan dicetak. Kosongkan dulu kalau
-                dokumen ini belum mau dipakai nomornya.
+            <NumberComposer
+              format={current?.format ?? null}
+              docType={current?.docType ?? 'QUOTATION'}
+              company={current?.company ?? 'TNT'}
+              date={issueDate || null}
+              seq={seq}
+              code={code}
+              onSeqChange={setSeq}
+              onCodeChange={setCode}
+              codes={codeOptions}
+              manual={manualNumber}
+              manualValue={manualValue}
+              onManualValueChange={setManualValue}
+              onSetManual={setManualNumber}
+            />
+            <p className="text-[10px] text-slate-400">
+              Hasilnya:{' '}
+              <span className="font-black text-slate-700 tabular-nums">
+                {number || 'belum ada'}
               </span>
-            </label>
+            </p>
           </div>
 
           <div className="bg-white rounded-2xl border border-slate-200 p-5 space-y-4">

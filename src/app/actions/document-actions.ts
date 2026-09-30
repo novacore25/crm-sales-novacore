@@ -7,6 +7,7 @@ import {
   auditLogs,
   documentBankAccounts,
   documentItems,
+  documentNumberCodes,
   documentSeries,
   documentSignatories,
   documents,
@@ -14,6 +15,7 @@ import {
 import { requireLord, requireUser } from '@/lib/auth';
 import { z } from 'zod';
 import { computeTotals } from '@/lib/document-totals';
+import { extractCode as codeFromNumber } from '@/lib/document-number';
 
 /**
  * Write an audit entry.
@@ -273,6 +275,57 @@ async function rememberUsedValues(params: {
   }
 }
 
+/** Letter codes for one series, most used first. */
+export async function getNumberCodes(seriesId: string) {
+  await requireUser();
+  return db
+    .select()
+    .from(documentNumberCodes)
+    .where(and(eq(documentNumberCodes.seriesId, seriesId), eq(documentNumberCodes.isActive, true)))
+    .orderBy(desc(documentNumberCodes.useCount), desc(documentNumberCodes.lastUsedAt), asc(documentNumberCodes.code));
+}
+
+/**
+ * Record that a letter code was used, creating it if new.
+ *
+ * Same bargain as the bank account and the signatory: the office cannot say what
+ * every code means, so it types them, and anything new is learned on the way past
+ * so the next document offers it in the dropdown. Runs on draft save rather than
+ * on issue, for the same reason - a test document should not add codes nobody
+ * will print.
+ *
+ * Only called for series whose template actually has a code segment. A HYPE
+ * number has no code, and learning one for it would put a value in the list that
+ * can never appear on a page.
+ */
+async function rememberNumberCode(seriesId: string, code: string | null | undefined): Promise<void> {
+  const clean = code?.trim().toUpperCase();
+  if (!clean) return;
+
+  const existing = await db
+    .select({ id: documentNumberCodes.id })
+    .from(documentNumberCodes)
+    .where(
+      and(
+        eq(documentNumberCodes.seriesId, seriesId),
+        sql`upper(${documentNumberCodes.code}) = ${clean}`,
+      ),
+    )
+    .limit(1);
+
+  if (existing[0]) {
+    await db
+      .update(documentNumberCodes)
+      .set({ useCount: sql`${documentNumberCodes.useCount} + 1`, lastUsedAt: new Date() })
+      .where(eq(documentNumberCodes.id, existing[0].id));
+  } else {
+    await db
+      .insert(documentNumberCodes)
+      .values({ id: crypto.randomUUID(), seriesId, code: clean, useCount: 1, lastUsedAt: new Date() })
+      .onConflictDoNothing();
+  }
+}
+
 /**
  * The archive list.
  *
@@ -513,6 +566,11 @@ export async function createDocument(
     signatory: { name: data.signatoryName, title: data.signatoryTitle },
   });
 
+  // Only learn a code the series can actually print. Feeding the raw form value
+  // in would file MCN against HYPE, whose numbers have no code segment at all.
+  const code = codeFromNumber(series.format, number);
+  if (code) await rememberNumberCode(series.id, code);
+
   return { success: true, id };
 }
 
@@ -623,10 +681,13 @@ export async function updateDocument(
   // Learn the bank account and signatory, after the transaction has committed.
   // A failure here must not roll back a document the user already saved.
   const seriesRows = await db
-    .select({ company: documentSeries.company })
+    .select({ company: documentSeries.company, format: documentSeries.format })
     .from(documentSeries)
     .where(eq(documentSeries.id, doc.seriesId))
     .limit(1);
+
+  const editedCode = codeFromNumber(seriesRows[0]?.format, number);
+  if (editedCode) await rememberNumberCode(doc.seriesId, editedCode);
 
   if (seriesRows[0]) {
     await rememberUsedValues({
