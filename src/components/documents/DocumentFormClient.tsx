@@ -41,6 +41,7 @@ const rupiah = (n: number) =>
 export interface DocumentFormSeed {
   id: string;
   seriesId: string;
+  number: string | null;
   clientName: string;
   issueDate: string | null;
   period: string | null;
@@ -63,9 +64,10 @@ export default function DocumentFormClient({ seed }: { seed?: DocumentFormSeed }
   const isEdit = !!seed;
 
   const [series, setSeries] = useState<
-    { id: string; label: string | null; company: string; docType: string }[]
+    { id: string; label: string | null; company: string; docType: string; format: string | null }[]
   >([]);
   const [seriesId, setSeriesId] = useState(seed?.seriesId ?? '');
+  const [number, setNumber] = useState(seed?.number ?? '');
   const [clientName, setClientName] = useState(seed?.clientName ?? '');
   const [issueDate, setIssueDate] = useState(
     seed?.issueDate ?? new Date().toISOString().slice(0, 10),
@@ -97,7 +99,11 @@ export default function DocumentFormClient({ seed }: { seed?: DocumentFormSeed }
     getDocumentSeries()
       .then((rows) => {
         setSeries(rows);
-        if (rows.length > 0) setSeriesId(rows[0].id);
+        // Only when nothing is chosen yet. This ran unconditionally and
+        // overwrote the series of a draft being edited with the first one in the
+        // list, so opening a HYPE draft and saving it silently turned it into a
+        // TNT document.
+        if (rows.length > 0) setSeriesId((prev) => prev || rows[0].id);
       })
       .catch(() => toast.error('Gagal memuat seri dokumen.'));
   }, []);
@@ -209,6 +215,7 @@ export default function DocumentFormClient({ seed }: { seed?: DocumentFormSeed }
     startTransition(async () => {
       const payload = {
         seriesId,
+        number: number.trim() || null,
         clientName: clientName.trim(),
         product: null,
         issueDate: issueDate || null,
@@ -328,9 +335,35 @@ export default function DocumentFormClient({ seed }: { seed?: DocumentFormSeed }
       <div className="flex-1 overflow-hidden flex flex-col lg:flex-row">
         {/* form */}
         <div className={cn('flex-1 overflow-auto p-4 md:p-6 space-y-5', tab === 'preview' && 'hidden lg:block')}>
+          {/* The number comes first, before the client and before the items.
+              It is the one field that cannot be worked out from anything else on
+              the form, and the office types it by hand precisely because nobody
+              can say what every segment means. Putting it at the top means the
+              form is answered in the order the document is actually issued. */}
+          <div className="bg-white rounded-2xl border-2 border-indigo-200 p-5 space-y-4">
+            <h2 className="text-[10px] font-black uppercase tracking-widest text-indigo-400">
+              1 &middot; Nomor dokumen
+            </h2>
+            <label className="block">
+              <input
+                type="text"
+                value={number}
+                onChange={(e) => setNumber(e.target.value)}
+                placeholder={current?.format ?? '000/QUO-TNT/SA/IX/26'}
+                spellCheck={false}
+                autoComplete="off"
+                className="w-full px-3 py-2.5 border border-slate-200 rounded-lg text-sm font-black text-slate-900 outline-none focus:ring-2 focus:ring-indigo-500 tabular-nums"
+              />
+              <span className="text-[10px] text-slate-400 mt-1 block">
+                Ketik manual, persis seperti akan dicetak. Kosongkan dulu kalau
+                dokumen ini belum mau dipakai nomornya.
+              </span>
+            </label>
+          </div>
+
           <div className="bg-white rounded-2xl border border-slate-200 p-5 space-y-4">
             <h2 className="text-[10px] font-black uppercase tracking-widest text-slate-400">
-              Dasar
+              2 &middot; Dasar
             </h2>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
               <label className="block">

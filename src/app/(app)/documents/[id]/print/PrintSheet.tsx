@@ -21,6 +21,11 @@ import { DocumentPreview, type PreviewDoc } from '@/components/documents/Documen
  * right before publishing it. A dialog that fires unasked blocks that, and it
  * fires before the page has finished painting, so the first print could capture
  * a half-drawn sheet. Printing is now a deliberate click.
+ *
+ * The banner distinguishes a draft with no number from one that has it, because
+ * a draft can now carry the number the user typed into the form. Telling someone
+ * their draft has no number when it plainly has one is worse than saying
+ * nothing.
  */
 export function PrintSheet({ doc }: { doc: PreviewDoc }) {
   const router = useRouter();
@@ -66,10 +71,15 @@ export function PrintSheet({ doc }: { doc: PreviewDoc }) {
           </span>
         </div>
 
-        {!doc.number && (
+        {!doc.number ? (
           <div className="print-hide mb-4 rounded-xl border border-amber-300 bg-amber-50 px-4 py-2.5 text-[11px] font-bold text-amber-800">
-            Ini masih DRAFT, jadi belum ada nomor. Nomoran baru diisi saat dokumen diterbitkan.
-            Layout di bawah sudah final &mdash; hanya baris nomornya yang berubah nanti.
+            Ini masih DRAFT dan nomornya belum diisi. Kalau Anda sudah tahu nomornya, isi di
+            form editable &mdash; layout di bawah tidak akan berubah, hanya baris nomornya.
+          </div>
+        ) : (
+          <div className="print-hide mb-4 rounded-xl border border-slate-300 bg-white px-4 py-2.5 text-[11px] font-bold text-slate-600">
+            Nomor <strong className="text-slate-900">{doc.number}</strong> sudah ada di draft
+            ini. Layout di bawah sama persis dengan yang akan keluar setelah diterbitkan.
           </div>
         )}
 

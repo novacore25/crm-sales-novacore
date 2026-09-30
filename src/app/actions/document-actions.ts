@@ -1,6 +1,6 @@
 'use server';
 
-import { and, asc, desc, eq, ilike, or, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, ilike, ne, or, sql } from 'drizzle-orm';
 
 import { db } from '@/db';
 import {
@@ -107,6 +107,17 @@ const itemSchema = z.object({
 
 const documentSchema = z.object({
   seriesId: z.string().min(1),
+  /**
+   * Typed by the user, and entered first - before the client, before the items.
+   * A number assigned by the system is a guess, and a wrong guess has already
+   * been printed by the time anyone notices.
+   *
+   * Optional on a draft so a half-finished one can still be saved, but a draft
+   * that has one holds it for real: the unique index on (series_id, number)
+   * covers drafts too, so two drafts cannot claim the same number and the loser
+   * is told which number is taken rather than discovering it at print time.
+   */
+  number: z.string().trim().max(120).nullish(),
   clientName: z.string().trim().min(1, 'Nama klien wajib diisi').max(300),
   product: z.enum(['TNT', 'MCN', 'HYPE']).nullish(),
   issueDate: z.string().nullish(),
@@ -428,11 +439,32 @@ export async function createDocument(
 
   const totals = computeTotals(data.items, data.taxRate ?? null);
   const id = crypto.randomUUID();
+  const number = data.number?.trim() ? data.number.trim() : null;
+
+  if (number) {
+    const clash = await db
+      .select({ client: documents.clientName })
+      .from(documents)
+      .where(
+        and(
+          eq(documents.seriesId, series.id),
+          sql`upper(trim(${documents.number})) = upper(${number})`,
+        ),
+      )
+      .limit(1);
+    if (clash[0]) {
+      return {
+        success: false,
+        error: `Nomor "${number}" sudah dipakai untuk ${clash[0].client}. Cek arsip, atau kosongkan dulu kalau dokumen ini belum jadi.`,
+      };
+    }
+  }
 
   await db.insert(documents).values({
     id,
     seriesId: series.id,
     status: 'DRAFT',
+    number,
     clientName: data.clientName,
     product: data.product ?? null,
     issueDate: data.issueDate ?? null,
@@ -516,11 +548,40 @@ export async function updateDocument(
   }
 
   const totals = computeTotals(data.items, data.taxRate ?? null);
+  const number = data.number?.trim() ? data.number.trim() : null;
+
+  // A draft may already hold a number, so the clash check has to exclude this
+  // document by id rather than by comparing numbers. Re-saving without changing
+  // the number must not report the document as a duplicate of itself.
+  //
+  // There is deliberately no `number !== doc.number` shortcut. The comparison is
+  // case-insensitive and trimmed, matching issueDocument, so a shortcut here
+  // would let a re-save through that publishing later rejects.
+  if (number) {
+    const clash = await db
+      .select({ client: documents.clientName })
+      .from(documents)
+      .where(
+        and(
+          eq(documents.seriesId, doc.seriesId),
+          ne(documents.id, id),
+          sql`upper(trim(${documents.number})) = upper(${number})`,
+        ),
+      )
+      .limit(1);
+    if (clash[0]) {
+      return {
+        success: false,
+        error: `Nomor "${number}" sudah dipakai untuk ${clash[0].client}. Cek arsip, atau kosongkan dulu kalau dokumen ini belum jadi.`,
+      };
+    }
+  }
 
   await db.transaction(async (tx) => {
     await tx
       .update(documents)
       .set({
+        number,
         clientName: data.clientName,
         product: data.product ?? null,
         issueDate: data.issueDate ?? null,
@@ -669,12 +730,18 @@ export async function issueDocument(
       // Readable duplicate check. The index below is the real guarantee; this
       // one exists so the person gets told which number is taken instead of a
       // generic constraint error.
+      //
+      // The document itself must be excluded. A draft can already carry the
+      // number the user typed into the form, and without this it would collide
+      // with its own row and report itself as the duplicate - making it
+      // impossible to publish any draft that had a number.
       const clash = await tx
         .select({ n: documents.number, client: documents.clientName })
         .from(documents)
         .where(
           and(
             eq(documents.seriesId, r.doc.seriesId),
+            ne(documents.id, id),
             sql`upper(trim(${documents.number})) = upper(${clean})`,
           ),
         )

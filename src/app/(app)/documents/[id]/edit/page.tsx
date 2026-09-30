@@ -27,6 +27,7 @@ export default async function EditDocumentPage({ params }: { params: Promise<{ i
   const seed: DocumentFormSeed = {
     id: doc.id,
     seriesId: doc.seriesId,
+    number: doc.number,
     clientName: doc.clientName,
     issueDate: doc.issueDate,
     period: doc.period,

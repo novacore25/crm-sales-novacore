@@ -70,7 +70,10 @@ export default function DocumentDetailClient({
     setBusy(true);
     try {
       const ctx = await getNumberContext(doc.seriesId);
-      setIssueNumber(ctx.suggestion ? String(ctx.suggestion) : '');
+      // A number already chosen in the form wins over the suggestion. The
+      // suggestion is a guess; what the user typed is the decision, and asking
+      // them to retype it here would be a second chance to get it wrong.
+      setIssueNumber(doc.number ?? (ctx.suggestion ? String(ctx.suggestion) : ''));
       setIssueRecent(ctx.recent);
       setIssueExample(ctx.example);
       setIssueOpen(true);
