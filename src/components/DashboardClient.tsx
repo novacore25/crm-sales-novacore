@@ -15,6 +15,7 @@ import { getDashboardStats, getIndividualContributions, getGhostedLeads } from '
 import { getLeadsPage, getCategories } from '@/app/actions/lead-actions';
 import { Database, Send, ReplyAll, Handshake, Trophy, Filter, TrendingUp, Users, Target, Search, Phone, Info, Check, Clock, AlertTriangle, Square, CheckSquare } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { assignablePICNames } from '@/lib/pic-filter';
 import { format, startOfMonth } from 'date-fns';
 import { AnimatePresence, motion } from 'motion/react';
 import BulkStatusModal from './BulkStatusModal';
@@ -330,12 +331,10 @@ export default function DashboardClient({
     setSelectedLeadIds(prev => prev.includes(id) ? prev.filter(i => i !== id) : [...prev, id]);
   };
 
-  const admins = useMemo(() => {
-    return users
-      .filter(u => u.role !== 'lord')
-      .map(u => u.name)
-      .sort();
-  }, [users]);
+  // The PIC filter offers staff, admin and lord. `pending` is excluded because
+  // such an account has never been assigned a lead, so selecting one could only
+  // ever return an empty result.
+  const admins = useMemo(() => assignablePICNames(users), [users]);
 
   const currentTargetMonth = filterEnd.slice(0, 7) || format(new Date(), 'yyyy-MM');
   const activeTarget = useMemo(() => targets?.find(t => t.monthYear === currentTargetMonth), [targets, currentTargetMonth]);
@@ -378,6 +377,18 @@ export default function DashboardClient({
     return Math.min(100, (num / den) * 100).toFixed(1) + '%';
   };
 
+  /**
+   * The unclamped ratio, so a rate that hit the ceiling can say so.
+   *
+   * Clamping alone is a quiet lie. 48 wins against 26 responses is 185%, and
+   * printing that as "100.0%" in a card headed EFFICIENCY RATE invites the
+   * reading that the team converted every response it got - when in fact 22
+   * deals closed without a response ever being logged for them. The clamp stops
+   * an impossible number going on screen; this stops the impossibility going
+   * unnoticed.
+   */
+  const rawPct = (num: number, den: number): number => (den ? (num / den) * 100 : 0);
+
   const rates = useMemo(() => {
     return {
       // Of the leads the PIC worked, how many were chatted.
@@ -386,8 +397,39 @@ export default function DashboardClient({
       interest: pct(scorecard.meeting, scorecard.responsed),
       // Of the leads that responded, how many closed.
       conversion: pct(scorecard.win, scorecard.responsed),
+      // Non-null when the true ratio exceeds 100, so the card can flag it.
+      conversionOverflow: (() => {
+        const raw = rawPct(scorecard.win, scorecard.responsed);
+        return raw > 100 ? raw : null;
+      })(),
     };
   }, [scorecard]);
+
+  /**
+   * Individual Target Contribution, biggest revenue first.
+   *
+   * The server sorts by name, so the panel opened with whoever happened to be
+   * alphabetically first regardless of what they brought in. Revenue is the
+   * figure the panel exists to show, so it is what orders it.
+   *
+   * The unattributed bucket is pinned to the bottom whatever its size. It is
+   * not a person, and sorting it by revenue would put a Rp 1.9 billion row
+   * directly under the first trophy, which is the exact reading this was fixed
+   * to prevent. It is still rendered, and still carries its warning banner.
+   *
+   * Ties break on revenue then on name, so the order is stable between renders
+   * rather than depending on the server's row order.
+   */
+  const sortedContributions = useMemo(() => {
+    return [...contributions].sort((a, b) => {
+      const aUn = a.adminName === 'Tanpa PIC';
+      const bUn = b.adminName === 'Tanpa PIC';
+      if (aUn !== bUn) return aUn ? 1 : -1;
+      const byRevenue = Number(b.totalRevenue) - Number(a.totalRevenue);
+      if (byRevenue !== 0) return byRevenue;
+      return a.adminName.localeCompare(b.adminName, 'id');
+    });
+  }, [contributions]);
 
   /**
    * Rows shown in the pipeline table.
@@ -680,6 +722,25 @@ export default function DashboardClient({
           </p>
         )}
 
+        {/*
+          A rate that hit the ceiling is clamped to 100%, which is correct as a
+          number and misleading as a display. 48 wins against 26 responses is
+          185%: without this line the Efficiency card reads as "every response
+          converted", when the real finding is that 22 deals closed with no
+          response ever logged against them. The data is the problem, and the
+          card should say so rather than round it away.
+        */}
+        {rates.conversionOverflow !== null && (
+          <p className="text-[11px] text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 -mt-1 leading-relaxed">
+            <span className="font-black">Catatan:</span> rasio mentah Efficiency
+            Rate adalah <span className="font-black">{rates.conversionOverflow.toFixed(0)}%</span>,
+            karena {scorecard.win} deal Closed Win tapi hanya {scorecard.responsed}{' '}
+            lead yang punya stage Responsed. Angka ditampilkan maksimal 100% —
+            {scorecard.win - scorecard.responsed} deal menutup tanpa catatan respons.
+            Ini masalah pencatatan stage, bukan performa tim.
+          </p>
+        )}
+
 
 
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 items-start">
@@ -760,7 +821,7 @@ export default function DashboardClient({
               </p>
             )}
             <div className="space-y-6 overflow-y-auto flex-1 pr-2 custom-scrollbar">
-              {contributions.map((contribution, index) => {
+              {sortedContributions.map((contribution, index) => {
                 const admin = contribution.adminName;
                 const adminChat = Number(contribution.totalChat);
                 const adminMeet = Number(contribution.totalMeet);

@@ -16,6 +16,7 @@ import type { FunnelHistoryDTO } from '@/types';
 import { toast } from 'sonner';
 import { motion, AnimatePresence } from 'motion/react';
 import ConfirmModal from './ConfirmModal';
+import { assignablePICs } from '@/lib/pic-filter';
 
 interface ImportModalProps {
   isOpen: boolean;
@@ -70,7 +71,7 @@ export default function ImportModalClient({ isOpen, onClose, users = [] }: Impor
     if (isOpen) refreshCategories();
   }, [isOpen, refreshCategories]);
 
-  const staffUsers = users.filter(u => u.role === 'staff' || u.role === 'admin');
+  const staffUsers = assignablePICs(users);
   const [category, setCategory] = useState('');
   const [customCategory, setCustomCategory] = useState('');
   const [importMode, setImportMode] = useState<'legacy' | 'individu' | 'legacy-v2' | 'basic'>('basic');

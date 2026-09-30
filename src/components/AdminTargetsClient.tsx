@@ -87,6 +87,11 @@ export default function AdminTargetsClient({
     });
   }, [activeGlobalTarget, activeIndividualTarget, mode]);
 
+  // Deliberately NOT assignablePICs(). This list is for setting a personal
+  // monthly target, and the lord has none - individual_targets is keyed to a
+  // rep, and offering a row that cannot be saved is the same trap as offering a
+  // pending account as a PIC. `pending` is excluded for the same reason it is
+  // everywhere else: no work can be assigned to it yet.
   const staffList = useMemo(() => {
     return users.filter((u) => u.role !== 'pending' && u.role !== 'lord');
   }, [users]);

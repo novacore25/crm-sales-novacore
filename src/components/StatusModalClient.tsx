@@ -8,6 +8,7 @@ import { cn } from '@/lib/utils';
 import CurrencyInput from './common/CurrencyInput';
 import { addFunnelHistory, updateLead, createNote, editFunnelHistory } from '@/app/actions/lead-actions';
 import { getOIForecasts, setOIForecastStatus, updateOIForecastField } from '@/app/actions/forecast-actions';
+import { assignablePICs } from '@/lib/pic-filter';
 
 interface StatusModalProps {
   isOpen: boolean;
@@ -56,9 +57,9 @@ export default function StatusModalClient({ isOpen, onClose, lead, user, users =
 
   const isLordOrAdmin = user.role === 'lord' || user.role === 'admin';
 
-  // Get staff users dynamically from database
-  const staffUsers = users.filter(u => u.role === 'staff' || u.role === 'lord' || u.role === 'admin')
-    .filter(u => u.uid !== user.uid); // exclude current user from PIC list
+  // Exclude the current user: assigning a stage to yourself and reading it back
+  // as someone else's action is worse than not offering it at all.
+  const staffUsers = assignablePICs(users).filter(u => u.uid !== user.uid);
 
   const toggleProduct = (product: ProductOffered) => {
     setProductOffered(prev =>

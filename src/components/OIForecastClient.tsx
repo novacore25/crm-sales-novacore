@@ -7,6 +7,7 @@ import { TrendingUp, Target, CalendarDays } from 'lucide-react';
 import OISummaryCards from './OIForecast/OISummaryCards';
 import OIGrid, { type GridLeadOption } from './OIForecast/OIGrid';
 import OIMilestone from './OIForecast/OIMilestone';
+import { knownAssignablePICs } from '@/lib/pic-filter';
 
 interface OIForecastPageProps {
   forecasts: OIForecastDTO[];
@@ -107,9 +108,20 @@ export default function OIForecastClient({
     (t) => t.monthYear === selectedMonthYear && t.product === activeTab,
   );
 
+  // Built from the forecast rows, so it only offers people who actually own
+  // something on this tab - but a `pending` account is stripped out. Offering
+  // one would list a name that can never own a lead, and selecting it would
+  // filter the grid to nothing.
+  //
+  // Names that are in the data but no longer match a user account are kept:
+  // the work is real, and hiding whoever did it would make the totals look
+  // unexplained rather than attributed to a departed rep.
   const uniquePICs = useMemo(
-    () => Array.from(new Set(localForecasts.map(getForecastPIC))).filter(Boolean).sort(),
-    [localForecasts],
+    () => knownAssignablePICs(
+      Array.from(new Set(localForecasts.map(getForecastPIC))).filter(Boolean),
+      users,
+    ).sort((a, b) => a.localeCompare(b, 'id')),
+    [localForecasts, users],
   );
 
   return (

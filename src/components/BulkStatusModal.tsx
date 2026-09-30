@@ -6,6 +6,7 @@ import { addFunnelHistory, createNote, editFunnelHistory, updateLead } from '@/a
 import CurrencyInput from './common/CurrencyInput';
 import { toast } from 'sonner';
 import { motion, AnimatePresence } from 'motion/react';
+import { assignablePICs } from '@/lib/pic-filter';
 
 interface BulkStatusModalProps {
   isOpen: boolean;
@@ -52,9 +53,7 @@ export default function BulkStatusModal({
   const [loading, setLoading] = useState(false);
 
   const isLordOrAdmin = user.role === 'lord' || user.role === 'admin';
-  const staffUsers = users
-    .filter((u) => u.role === 'staff' || u.role === 'lord' || u.role === 'admin')
-    .filter((u) => u.uid !== user.uid);
+  const staffUsers = assignablePICs(users).filter((u) => u.uid !== user.uid);
 
   const handleSave = async () => {
     if (isCorrectionMode) {
