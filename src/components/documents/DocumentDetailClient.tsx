@@ -249,10 +249,11 @@ export default function DocumentDetailClient({
       </header>
 
       <div className="flex-1 overflow-auto p-4 md:p-8 flex justify-center">
-        <div className="origin-top scale-[0.85] xl:scale-100 w-[794px] shrink-0">
-          <div className="shadow-xl ring-1 ring-slate-300 bg-white min-h-[1123px]">
+        <div className="origin-top w-[794px] shrink-0 scale-[0.8] xl:scale-100">
+          <div className="shadow-xl ring-1 ring-slate-300 bg-white min-h-[1123px] w-[794px]">
             <DocumentPreview doc={preview} />
           </div>
+          <div className="h-[898px] xl:h-0" />
         </div>
       </div>
 

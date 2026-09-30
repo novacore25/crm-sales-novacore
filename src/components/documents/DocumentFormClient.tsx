@@ -571,14 +571,19 @@ export default function DocumentFormClient() {
             </div>
           </div>
 
-          {/* A4 at 0.62 scale: 210mm * 0.62 ≈ 130px wide, close enough to a
-              real page that the layout can be judged, small enough to sit
-              beside the form. The print route renders the same component at
-              full size. */}
-          <div className="mx-auto origin-top-left scale-[0.62] sm:scale-[0.7] lg:scale-[0.62] w-[794px]">
-            <div className="shadow-xl ring-1 ring-slate-300 bg-white min-h-[1123px]">
+          {/* A4 is 794 x 1123 px at 96dpi, which is exactly the sheet the
+              print route renders. Scaling the same number by the same factor
+              is what makes the preview trustworthy - a preview at a different
+              proportion from the printed page will always lie about where the
+              page breaks. */}
+          <div className="mx-auto origin-top-left w-[794px] min-h-[1123px] scale-[0.6] sm:scale-[0.68] lg:scale-[0.6]">
+            <div className="shadow-xl ring-1 ring-slate-300 bg-white min-h-[1123px] w-[794px]">
               <DocumentPreview doc={preview} />
             </div>
+            {/* Reserves the space the scaled sheet occupies, since transform
+                does not affect layout height. Without it the scrollbar thinks
+                the page is 300px tall and cuts the document off. */}
+            <div className="h-[674px] sm:h-[764px] lg:h-[674px]" />
           </div>
         </div>
       </div>

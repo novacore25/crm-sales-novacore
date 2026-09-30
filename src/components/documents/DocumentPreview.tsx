@@ -3,19 +3,24 @@ import type { ReactNode } from 'react';
 /**
  * The two document templates.
  *
- * ONE component set renders both the on-screen preview and the printed page.
- * That is the point: a preview that is "close enough" to the print output is
- * worse than no preview, because someone signs off on a document that then
- * comes out of the printer different from what they approved. The same React
- * tree draws both, so a change to the layout cannot land in one place only.
+ * ONE component set renders the on-screen preview and the printed page. A
+ * preview that is "close enough" to the print output is worse than none,
+ * because someone approves a document that then comes out of the printer
+ * different from what they saw.
  *
- * The two identities come from the paper the office already sends:
+ * Geometry: A4, 210 x 297 mm, always. The office's paper is not:
  *
- *   TNT  Thick and Thin Media Indonesia, maroon, five columns
- *   HYPE PT Synera Kreatif Grup, lime, four columns
+ *   HYPE  595 x 842 pt  = 210 x 297 mm   already A4
+ *   TNT   612 x 1048 pt = 216 x 370 mm   25% too tall
  *
- * MCN is a product sold through the Thick and Thin letterhead, so it renders
- * on the TNT template. `company` picks the identity; `product` does not.
+ * Forcing TNT onto A4 without re-laying it out pushed the content onto a second
+ * page, so the header and title band were compressed and the table given the
+ * room it needs instead.
+ *
+ * The header and footer are `print:fixed`, which is how Chrome repeats them on
+ * every page of a multi-page document. The spacing they occupy is applied
+ * unconditionally, not only in print, so the preview shows the same geometry the
+ * printer will.
  */
 
 export interface PreviewItem {
@@ -56,18 +61,17 @@ const rupiah = (n: number) =>
   }).format(n);
 
 /**
- * TNT prints its dates in English month names; HYPE prints them in Indonesian.
- * Matching that is not cosmetic - the office has been issuing documents this
- * way and changing it would make an old document and a new one look like they
- * came from different companies.
+ * TNT prints English month names, HYPE Indonesian. Matching that is not
+ * cosmetic: the office has issued documents this way for years, and an old and
+ * a new one have to look like they came from the same company.
  */
 const MONTHS_EN = [
-  'JANUARY','FEBRUARY','MARCH','APRIL','MAY','JUNE',
-  'JULY','AUGUST','SEPTEMBER','OCTOBER','NOVEMBER','DECEMBER',
+  'JANUARY', 'FEBRUARY', 'MARCH', 'APRIL', 'MAY', 'JUNE',
+  'JULY', 'AUGUST', 'SEPTEMBER', 'OCTOBER', 'NOVEMBER', 'DECEMBER',
 ];
 const MONTHS_ID = [
-  'Januari','Februari','Maret','April','Mei','Juni',
-  'Juli','Agustus','September','Oktober','November','Desember',
+  'Januari', 'Februari', 'Maret', 'April', 'Mei', 'Juni',
+  'Juli', 'Agustus', 'September', 'Oktober', 'November', 'Desember',
 ];
 
 function formatDate(iso: string | null, lang: 'en' | 'id'): string {
@@ -76,36 +80,31 @@ function formatDate(iso: string | null, lang: 'en' | 'id'): string {
   if (Number.isNaN(d.getTime())) return '-';
   const day = d.getDate();
   const month = (lang === 'en' ? MONTHS_EN : MONTHS_ID)[d.getMonth()];
-  const year = d.getFullYear();
-  return lang === 'en' ? `${day} ${month} ${year}` : `${day} ${month} ${year}`;
+  return `${day} ${month} ${d.getFullYear()}`;
 }
 
 /**
  * Descriptions are free-form and multi-line, because every deal is described
- * differently. Newlines are preserved and rendered as separate lines rather
- * than collapsed - the samples use a bulleted list with nesting, and a run-on
- * paragraph is a real readability problem on a document a client reads.
+ * differently. Newlines are preserved. A leading dash becomes a real list
+ * item so a wrapped line aligns under the text rather than under the dot.
  */
 function Description({ text }: { text: string | null | undefined }) {
   if (!text?.trim()) return null;
-  const lines = text.split(/\r?\n/);
   return (
-    <div className="text-[10px] leading-relaxed text-slate-600 whitespace-pre-wrap break-words">
-      {lines.map((line, i) => {
+    <div className="text-[9.5px] leading-[1.5] text-slate-600 whitespace-pre-wrap break-words">
+      {text.split(/\r?\n/).map((line, i) => {
         const t = line.trim();
         if (!t) return <div key={i} className="h-1" />;
-        // A leading bullet marker is rendered as a real list item so wrapped
-        // lines align under the text rather than under the dot.
         const m = /^[-*•]\s*(.*)$/.exec(t);
         if (m) {
           return (
-            <div key={i} className="flex gap-1.5">
+            <div key={i} className="flex gap-1.5 print:break-inside-avoid">
               <span className="shrink-0">&bull;</span>
               <span className="min-w-0">{m[1]}</span>
             </div>
           );
         }
-        return <div key={i}>{t}</div>;
+        return <div key={i} className="print:break-inside-avoid">{t}</div>;
       })}
     </div>
   );
@@ -114,12 +113,12 @@ function Description({ text }: { text: string | null | undefined }) {
 function Terms({ text }: { text: string | null | undefined }) {
   if (!text?.trim()) return null;
   return (
-    <div className="text-[9px] leading-relaxed text-slate-600">
+    <div className="text-[8.5px] leading-[1.5] text-slate-600">
       {text.split(/\r?\n/).filter((l) => l.trim()).map((line, i) => {
         const t = line.trim();
         const m = /^[-*•]\s*(.*)$/.exec(t);
         return (
-          <div key={i} className="flex gap-1.5">
+          <div key={i} className="flex gap-1.5 print:break-inside-avoid">
             <span className="shrink-0">{m ? '\u2022' : '\u2013'}</span>
             <span className="min-w-0">{m ? m[1] : t}</span>
           </div>
@@ -130,105 +129,167 @@ function Terms({ text }: { text: string | null | undefined }) {
 }
 
 // ---------------------------------------------------------------------------
+// Sheet
+// ---------------------------------------------------------------------------
+
+/**
+ * The A4 sheet both templates render into.
+ *
+ * `print:fixed` on the header and footer is what makes them repeat on page two
+ * and beyond. The top and bottom padding is applied in both modes on purpose:
+ * if it only applied in print, the preview would look right and the printout
+ * would shift the content up under the header.
+ */
+function Sheet({
+  header,
+  children,
+  footer,
+  footerSpace,
+  headerSpace,
+}: {
+  header: ReactNode;
+  children: ReactNode;
+  footer: ReactNode;
+  headerSpace: string;
+  footerSpace: string;
+}) {
+  return (
+    <div className="bg-white text-slate-800 flex flex-col min-h-full print:min-h-0">
+      <div
+        className="shrink-0 print:fixed print:top-0 print:left-0 print:right-0 print:z-20 print:w-[210mm] bg-white print:pt-[10mm] print:px-[14mm]"
+      >
+        {header}
+      </div>
+
+      <div
+        className="flex-1 px-[14mm] print:px-0"
+        style={{ paddingTop: headerSpace, paddingBottom: footerSpace }}
+      >
+        {children}
+      </div>
+
+      <div
+        className="shrink-0 print:fixed print:bottom-0 print:left-0 print:right-0 print:z-20 print:w-[210mm] bg-white print:px-[14mm] print:pb-[6mm]"
+      >
+        {footer}
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Thick and Thin
 // ---------------------------------------------------------------------------
 
-const MAROON = 'bg-[#5C2430]';
+const MAROON = '#5C2430';
 const MAROON_TEXT = 'text-[#5C2430]';
-const MAROON_BORDER = 'border-[#5C2430]';
 
 function TntTemplate({ doc }: { doc: PreviewDoc }) {
   const isInvoice = doc.docType === 'INVOICE';
-  return (
-    <div className="bg-white text-slate-800 min-h-full">
-      {/* letterhead */}
-      <div className="px-8 pt-7 pb-5 flex items-center gap-3">
-        <div className="w-11 h-11 rounded-lg bg-gradient-to-br from-amber-300 to-amber-500 flex items-center justify-center shrink-0">
-          <span className="text-white text-xl font-black">T</span>
-        </div>
-        <div className="leading-none">
-          <div className="text-[22px] font-black tracking-tight text-slate-900">
-            Thick<span className="font-light">and Thin</span>
-          </div>
-          <div className="text-[11px] text-slate-500 mt-0.5">Media Indonesia</div>
-        </div>
-      </div>
 
+  return (
+    <Sheet
+      headerSpace="32mm"
+      footerSpace="18mm"
+      header={
+        <div className="flex items-center gap-2.5">
+          <div className="w-9 h-9 rounded-lg bg-gradient-to-br from-amber-300 to-amber-500 flex items-center justify-center shrink-0">
+            <span className="text-white text-lg font-black">T</span>
+          </div>
+          <div className="leading-none">
+            <div className="text-[17px] font-black tracking-tight text-slate-900">
+              Thick<span className="font-light">and Thin</span>
+            </div>
+            <div className="text-[9px] text-slate-500 mt-0.5">Media Indonesia</div>
+          </div>
+        </div>
+      }
+      footer={
+        <div style={{ background: MAROON }} className="flex items-center gap-2 px-4 py-2 text-white">
+          <div className="h-0.5 flex-1 bg-amber-400" />
+          <span className="text-[7.5px] font-bold">tntkreatif.com</span>
+          <div className="h-0.5 w-14 bg-amber-400" />
+          <span className="text-[7.5px] font-bold">Thick and Thin Media</span>
+        </div>
+      }
+    >
       {/* title band */}
-      <div className="flex items-stretch">
-        <div className={`flex-1 ${MAROON}`} />
-        <div className="px-8 py-3 text-[30px] font-black tracking-tight text-slate-900">
+      <div className="flex items-stretch mb-5 print:break-after-avoid">
+        <div className="flex-1" style={{ background: MAROON }} />
+        <div className="px-7 py-2 text-[26px] font-black tracking-tight text-slate-900">
           {isInvoice ? 'INVOICE' : 'QUOTATION'}
         </div>
-        <div className={`flex-1 ${MAROON}`} />
+        <div className="flex-1" style={{ background: MAROON }} />
       </div>
 
       {/* to / date / number */}
-      <div className="px-8 py-5 flex items-start justify-between gap-6">
+      <div className="mb-4 flex items-start justify-between gap-6 print:break-after-avoid">
         <div className="min-w-0">
-          <div className="text-[10px] font-black uppercase tracking-widest text-slate-500">TO :</div>
-          <div className="text-[15px] font-black text-slate-900 mt-0.5 break-words">
+          <div className="text-[9px] font-black uppercase tracking-widest text-slate-500">TO :</div>
+          <div className="text-[14px] font-black text-slate-900 mt-0.5 break-words">
             {doc.clientName || '—'}
           </div>
         </div>
-        <div className="shrink-0 text-right space-y-1">
-          <div className="flex justify-end gap-2 text-[11px]">
+        <div className="shrink-0 text-right space-y-0.5">
+          <div className="flex justify-end gap-2 text-[10px]">
             <span className={`font-black uppercase tracking-widest ${MAROON_TEXT}`}>DATE</span>
             <span className="text-slate-800 font-bold tabular-nums">
               {formatDate(doc.issueDate, 'en')}
             </span>
           </div>
-          <div className="flex justify-end gap-2 text-[11px]">
+          <div className="flex justify-end gap-2 text-[10px]">
             <span className={`font-black uppercase tracking-widest ${MAROON_TEXT}`}>NO.</span>
-            <span className="text-slate-800 font-bold tabular-nums">
-              {doc.number ?? <span className="italic text-slate-400">belum ada</span>}
+            <span className="text-slate-800 font-bold tabular-nums break-all">
+              {doc.number ?? <span className="italic text-slate-400">—</span>}
             </span>
           </div>
         </div>
       </div>
 
       {/* items */}
-      <div className="px-8">
-        <table className="w-full border-collapse text-[10px]">
-          <thead>
-            <tr className="bg-slate-800 text-white">
-              <th className="px-2 py-2 text-left w-8">No</th>
-              <th className="px-2 py-2 text-left">Description</th>
-              <th className="px-2 py-2 text-right w-24">Price</th>
-              <th className="px-2 py-2 text-center w-20">Period</th>
-              <th className="px-2 py-2 text-right w-28">Total Price</th>
+      <table className="w-full border-collapse text-[9.5px]">
+        <thead>
+          <tr className="bg-slate-800 text-white print:break-after-avoid">
+            <th className="px-2 py-1.5 text-left w-8">No</th>
+            <th className="px-2 py-1.5 text-left">Description</th>
+            <th className="px-2 py-1.5 text-right w-24">Price</th>
+            <th className="px-2 py-1.5 text-center w-20">Period</th>
+            <th className="px-2 py-1.5 text-right w-28">Total Price</th>
+          </tr>
+        </thead>
+        <tbody>
+          {doc.items.map((it, i) => (
+            <tr key={i} className="border-b-2 border-slate-800/20 align-top print:break-inside-avoid">
+              <td className="px-2 py-2.5 text-center font-black">{i + 1}</td>
+              <td className="px-2 py-2.5">
+                <div className="font-black text-[10.5px] mb-0.5">{it.title}</div>
+                <Description text={it.description} />
+              </td>
+              <td className="px-2 py-2.5 text-right font-black tabular-nums whitespace-nowrap">
+                {rupiah(it.price)}
+              </td>
+              <td className="px-2 py-2.5 text-center font-bold text-[8.5px]">{it.period || '-'}</td>
+              <td className="px-2 py-2.5 text-right font-black tabular-nums whitespace-nowrap">
+                {rupiah(it.price)}
+              </td>
             </tr>
-          </thead>
-          <tbody>
-            {doc.items.map((it, i) => (
-              <tr key={i} className="border-b-2 border-slate-800/20 align-top">
-                <td className="px-2 py-3 text-center font-black">{i + 1}</td>
-                <td className="px-2 py-3">
-                  <div className="font-black text-[11px] mb-1">{it.title}</div>
-                  <Description text={it.description} />
-                </td>
-                <td className="px-2 py-3 text-right font-black tabular-nums">{rupiah(it.price)}</td>
-                <td className="px-2 py-3 text-center font-bold text-[9px]">{it.period || '-'}</td>
-                <td className="px-2 py-3 text-right font-black tabular-nums">{rupiah(it.price)}</td>
-              </tr>
-            ))}
-            {doc.items.length === 0 && (
-              <tr>
-                <td colSpan={5} className="px-2 py-8 text-center text-slate-300 italic">
-                  Belum ada item
-                </td>
-              </tr>
-            )}
-          </tbody>
-        </table>
-      </div>
+          ))}
+          {doc.items.length === 0 && (
+            <tr>
+              <td colSpan={5} className="px-2 py-8 text-center text-slate-300 italic">
+                Belum ada item
+              </td>
+            </tr>
+          )}
+        </tbody>
+      </table>
 
       {/* totals + terms */}
-      <div className="px-8 py-5 flex gap-6 items-start">
-        <div className="flex-1 min-w-0 pt-1">
+      <div className="mt-4 flex gap-5 items-start print:break-inside-avoid">
+        <div className="flex-1 min-w-0 pt-0.5">
           <Terms text={doc.terms} />
         </div>
-        <div className="w-64 shrink-0 text-[10px]">
+        <div className="w-60 shrink-0 text-[9.5px]">
           <div className="flex justify-between py-1 border-b border-slate-200">
             <span className="font-black uppercase tracking-widest text-slate-500">Total</span>
             <span className="font-black tabular-nums">{rupiah(doc.subtotal)}</span>
@@ -252,23 +313,24 @@ function TntTemplate({ doc }: { doc: PreviewDoc }) {
 
       {/* bank */}
       {(doc.bankName || doc.bankAccountName || doc.bankAccountNumber) && (
-        <div className="px-8 pb-4 text-[9px] space-y-0.5">
-          {doc.bankName && <div className="flex gap-2"><span className={`font-black ${MAROON_TEXT}`}>Bank</span><span className="text-slate-700">: {doc.bankName}</span></div>}
-          {doc.bankAccountName && <div className="flex gap-2"><span className={`font-black ${MAROON_TEXT}`}>Account Name</span><span className="text-slate-700">: {doc.bankAccountName}</span></div>}
-          {doc.bankAccountNumber && <div className="flex gap-2"><span className={`font-black ${MAROON_TEXT}`}>Account Number</span><span className="text-slate-700 tabular-nums">: {doc.bankAccountNumber}</span></div>}
-          {doc.bankBranch && <div className="flex gap-2"><span className={`font-black ${MAROON_TEXT}`}>Branch</span><span className="text-slate-700">: {doc.bankBranch}</span></div>}
+        <div className="mt-3 text-[8.5px] space-y-0.5 print:break-inside-avoid">
+          {doc.bankName && (
+            <div className="flex gap-2"><span className={`font-black ${MAROON_TEXT}`}>Bank</span><span className="text-slate-700">: {doc.bankName}</span></div>
+          )}
+          {doc.bankAccountName && (
+            <div className="flex gap-2"><span className={`font-black ${MAROON_TEXT}`}>Account Name</span><span className="text-slate-700">: {doc.bankAccountName}</span></div>
+          )}
+          {doc.bankAccountNumber && (
+            <div className="flex gap-2"><span className={`font-black ${MAROON_TEXT}`}>Account Number</span><span className="text-slate-700 tabular-nums">: {doc.bankAccountNumber}</span></div>
+          )}
+          {doc.bankBranch && (
+            <div className="flex gap-2"><span className={`font-black ${MAROON_TEXT}`}>Branch</span><span className="text-slate-700">: {doc.bankBranch}</span></div>
+          )}
         </div>
       )}
 
       <Signatures doc={doc} maroon />
-
-      <div className={`${MAROON} mt-6 px-8 py-3 flex items-center gap-2 text-white`}>
-        <div className="h-0.5 flex-1 bg-amber-400" />
-        <span className="text-[8px] font-bold">tntkreatif.com</span>
-        <div className="h-0.5 w-16 bg-amber-400" />
-        <span className="text-[8px] font-bold">Thick and Thin Media</span>
-      </div>
-    </div>
+    </Sheet>
   );
 }
 
@@ -276,91 +338,100 @@ function TntTemplate({ doc }: { doc: PreviewDoc }) {
 // HYPE
 // ---------------------------------------------------------------------------
 
-const LIME = 'bg-[#D4FF00]';
+const LIME = '#D4FF00';
 
 function HypeTemplate({ doc }: { doc: PreviewDoc }) {
   const isInvoice = doc.docType === 'INVOICE';
+
   return (
-    <div className="bg-white text-slate-900 min-h-full">
-      <div className="flex">
-        <div className="w-2/5 bg-slate-900 px-6 py-6 flex items-center">
-          <span className="text-[28px] font-black tracking-tight text-[#D4FF00]">HYPE</span>
-        </div>
-        <div className={`${LIME} flex-1 px-6 py-4 text-[9px] leading-snug text-slate-900`}>
-          <div className="text-right">
-            Ruko Dynasty Walk Alam Sutera No 16, Jl. Jalur Sutera Raya<br />
-            Kav 29C No 16, Pakualaman, Kec. Serpong Utara, Tangerang<br />
-            Selatan, Banten 15320
+    <Sheet
+      headerSpace="30mm"
+      footerSpace="16mm"
+      header={
+        <div className="flex items-stretch" style={{ margin: '0 -14mm' }}>
+          <div className="w-[38%] bg-slate-900 px-4 py-2.5 flex items-center">
+            <span className="text-[20px] font-black tracking-tight" style={{ color: LIME }}>HYPE</span>
           </div>
-          <div className="text-right mt-1.5">hyprojectt@gmail.com &nbsp;+62 857-7411-2604</div>
+          <div className="flex-1 px-4 py-1.5 text-[7.5px] leading-snug text-slate-900" style={{ background: LIME }}>
+            <div className="text-right">
+              Ruko Dynasty Walk Alam Sutera No 16, Jl. Jalur Sutera Raya<br />
+              Kav 29C No 16, Pakualaman, Kec. Serpong Utara, Tangerang Selatan, Banten 15320
+            </div>
+            <div className="text-right mt-0.5">hyprojectt@gmail.com &nbsp;+62 857-7411-2604</div>
+          </div>
         </div>
-      </div>
+      }
+      footer={
+        <div className="flex items-center gap-3" style={{ borderTop: `3px solid ${LIME}` }}>
+          <span className="text-[8px] font-black uppercase tracking-widest">PT Synera Kreatif Grup</span>
+          <div className="h-0.5 flex-1 bg-slate-900" />
+          <span className="text-[7.5px] text-slate-500">hyprojectt@gmail.com &middot; +62 857-7411-2604</span>
+        </div>
+      }
+    >
+      <h2 className="text-[20px] font-black tracking-tight mb-2 print:break-after-avoid">
+        Official {isInvoice ? 'Invoice' : 'Quotation'}
+      </h2>
 
-      <div className="px-8 pt-6 pb-4">
-        <h2 className="text-[22px] font-black tracking-tight">
-          Official {isInvoice ? 'Invoice' : 'Quotation'}
-        </h2>
-      </div>
-
-      <div className="px-8 pb-3 flex justify-end text-[11px] space-y-0.5">
+      <div className="flex justify-end text-[10px] mb-3 print:break-after-avoid">
         <div className="text-right">
-          <div className="tabular-nums">{doc.number ?? <span className="italic text-slate-400">belum ada nomor</span>}</div>
+          <div className="tabular-nums break-all">
+            {doc.number ?? <span className="italic text-slate-400">—</span>}
+          </div>
           <div className="tabular-nums">{formatDate(doc.issueDate, 'id')}</div>
         </div>
       </div>
 
-      <div className="px-8 pb-4">
-        <div className="text-[15px] font-black">
+      <div className="mb-3 print:break-after-avoid">
+        <div className="text-[14px] font-black">
           {isInvoice ? 'Invoice For' : 'Quotation For'}:{' '}
           <span className="font-light uppercase tracking-wide">{doc.clientName || '—'}</span>
         </div>
       </div>
 
-      <div className="px-8">
-        <table className="w-full border-collapse text-[10px] border-2 border-slate-900">
-          <thead>
-            <tr className={`${LIME} text-slate-900`}>
-              <th className="px-3 py-2.5 text-left w-40">Package</th>
-              <th className="px-3 py-2.5 text-center">Details</th>
-              <th className="px-3 py-2.5 text-center w-24">Period</th>
-              <th className="px-3 py-2.5 text-center w-44">
-                {isInvoice && doc.taxRate !== null
-                  ? `Grand Total (Include Tax ${doc.taxRate}%)`
-                  : 'Total'}
-              </th>
-            </tr>
-          </thead>
-          <tbody>
-            {doc.items.map((it, i) => (
-              <tr key={i} className="border-b-2 border-slate-900 align-middle">
-                <td className="px-3 py-4">
-                  <div className="font-black text-[11px] leading-snug">{it.title}</div>
-                </td>
-                <td className="px-3 py-4">
-                  <div className="flex justify-center">
-                    <div className="w-full max-w-xs">
-                      <Description text={it.description} />
-                    </div>
+      <table className="w-full border-collapse text-[9.5px] border-2 border-slate-900">
+        <thead>
+          <tr style={{ background: LIME }} className="text-slate-900 print:break-after-avoid">
+            <th className="px-3 py-2 text-left w-36">Package</th>
+            <th className="px-3 py-2 text-center">Details</th>
+            <th className="px-3 py-2 text-center w-24">Period</th>
+            <th className="px-3 py-2 text-center w-44">
+              {isInvoice && doc.taxRate !== null
+                ? `Grand Total (Include Tax ${doc.taxRate}%)`
+                : 'Total'}
+            </th>
+          </tr>
+        </thead>
+        <tbody>
+          {doc.items.map((it, i) => (
+            <tr key={i} className="border-b-2 border-slate-900 align-middle print:break-inside-avoid">
+              <td className="px-3 py-3">
+                <div className="font-black text-[10.5px] leading-snug">{it.title}</div>
+              </td>
+              <td className="px-3 py-3">
+                <div className="flex justify-center">
+                  <div className="w-full max-w-[240px]">
+                    <Description text={it.description} />
                   </div>
-                </td>
-                <td className="px-3 py-4 text-center font-bold text-[9px]">{it.period || '-'}</td>
-                <td className="px-3 py-4 text-center font-black tabular-nums">
-                  {isInvoice && doc.taxRate !== null ? rupiah(doc.grandTotal) : rupiah(it.price)}
-                </td>
-              </tr>
-            ))}
-            {doc.items.length === 0 && (
-              <tr>
-                <td colSpan={4} className="px-3 py-10 text-center text-slate-300 italic">
-                  Belum ada item
-                </td>
-              </tr>
-            )}
-          </tbody>
-        </table>
-      </div>
+                </div>
+              </td>
+              <td className="px-3 py-3 text-center font-bold text-[8.5px]">{it.period || '-'}</td>
+              <td className="px-3 py-3 text-center font-black tabular-nums whitespace-nowrap">
+                {isInvoice && doc.taxRate !== null ? rupiah(doc.grandTotal) : rupiah(it.price)}
+              </td>
+            </tr>
+          ))}
+          {doc.items.length === 0 && (
+            <tr>
+              <td colSpan={4} className="px-3 py-10 text-center text-slate-300 italic">
+                Belum ada item
+              </td>
+            </tr>
+          )}
+        </tbody>
+      </table>
 
-      <div className="px-8 py-4 text-[9px]">
+      <div className="mt-2.5 text-[8.5px] print:break-inside-avoid">
         {isInvoice ? (
           <div className="space-y-0.5">
             <div className="font-black">Payment Method Information:</div>
@@ -373,14 +444,8 @@ function HypeTemplate({ doc }: { doc: PreviewDoc }) {
         )}
       </div>
 
-      <div className="px-8 pb-6 pt-2 text-[10px]">
-        <div className="font-black">PT SYNERA KREATIF GRUP</div>
-      </div>
-
-      <Signatures doc={doc} />
-
-      <div className="h-16" />
-    </div>
+      <Signatures doc={doc} companyLine="PT SYNERA KREATIF GRUP" />
+    </Sheet>
   );
 }
 
@@ -388,20 +453,29 @@ function HypeTemplate({ doc }: { doc: PreviewDoc }) {
 // Shared
 // ---------------------------------------------------------------------------
 
-function Signatures({ doc, maroon }: { doc: PreviewDoc; maroon?: boolean }) {
+function Signatures({
+  doc,
+  maroon,
+  companyLine,
+}: {
+  doc: PreviewDoc;
+  maroon?: boolean;
+  companyLine?: string;
+}) {
   const nameColor = maroon ? MAROON_TEXT : 'text-slate-900';
   return (
-    <div className="px-8 pt-6 pb-8 flex justify-between items-end gap-8">
-      <div className="text-[10px]">
-        {maroon && <div className={`font-black mb-6 ${nameColor}`}>Thank you,<br />Best Regards</div>}
-        <div className="font-black underline underline-offset-2">{doc.signatoryName || '—'}</div>
-        <div className="font-black uppercase text-slate-500 mt-0.5">
-          {doc.signatoryTitle || '—'}
+    <div className="mt-5 print:break-inside-avoid">
+      {companyLine && <div className="text-[9.5px] font-black mb-8">{companyLine}</div>}
+      <div className="flex justify-between items-end gap-8">
+        <div className="text-[9.5px]">
+          {maroon && <div className={`font-black mb-8 ${nameColor}`}>Thank you,<br />Best Regards</div>}
+          <div className="font-black underline underline-offset-2">{doc.signatoryName || '—'}</div>
+          <div className="font-black uppercase text-slate-500 mt-0.5">{doc.signatoryTitle || '—'}</div>
         </div>
-      </div>
-      <div className="text-[10px] text-right">
-        <div className={`font-black mb-6 ${nameColor}`}>Approve by</div>
-        <div className="font-black">{doc.approverName || doc.clientName || '—'}</div>
+        <div className="text-[9.5px] text-right">
+          <div className={`font-black mb-8 ${nameColor}`}>Approve by</div>
+          <div className="font-black">{doc.approverName || doc.clientName || '—'}</div>
+        </div>
       </div>
     </div>
   );

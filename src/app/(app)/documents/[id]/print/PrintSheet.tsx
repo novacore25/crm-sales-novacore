@@ -31,8 +31,17 @@ export function PrintSheet({ doc }: { doc: PreviewDoc }) {
         @page { size: A4 portrait; margin: 0; }
         @media print {
           html, body { margin: 0; padding: 0; background: #fff; }
-          body { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+          body {
+            -webkit-print-color-adjust: exact;
+            print-color-adjust: exact;
+            width: 210mm;
+          }
           .print-hide { display: none !important; }
+          /* A fixed header sits on top of the flow, so the running element must
+             not be able to collide with itself across a page break. */
+          table { border-collapse: collapse; }
+          thead { display: table-header-group; }
+          tfoot { display: table-footer-group; }
         }
       `}</style>
 
@@ -55,7 +64,7 @@ export function PrintSheet({ doc }: { doc: PreviewDoc }) {
           </span>
         </div>
 
-        <div className="w-[210mm] min-h-[297mm] bg-white shadow-lg print:shadow-none print:w-full print:min-h-0">
+        <div className="w-[210mm] min-h-[297mm] bg-white shadow-lg print:shadow-none print:w-[210mm] print:min-h-0">
           <DocumentPreview doc={doc} />
         </div>
       </div>
