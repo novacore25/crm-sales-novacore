@@ -568,7 +568,12 @@ function HypeTemplate({ doc }: { doc: PreviewDoc }) {
 
   return (
     <Sheet
-      headerSpace="8mm"
+      /* 4.2mm, not the 8mm that was here. Measured off the office's own HYPE
+         invoice: the letterhead ends at 125pt and "Official Invoice" sits at
+         137pt, so the gap is 12pt. At 8mm the whole top of the document sat
+         24pt low, and every line with it - number, date, the "Invoice For" line
+         and the table header. */
+      headerSpace="4.2mm"
       /* Reserves room so long content never runs under the fixed footer. */
       footerSpace="67mm"
       headerHeight="44.1mm"

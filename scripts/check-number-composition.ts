@@ -22,6 +22,12 @@ function check(label: string, actual: unknown, expected: unknown) {
 const TNT_QUO = '{seq:3}/{type}-{company}/{code}/{roman}/{yy}';
 const TNT_INV = '{seq:2}/{type}-{company}/{code}/{roman}/{yy}';
 const HYPE_QUO = '{seq:3}/{type}-{company}';
+/*
+ * QUO is a literal, not {type}. The office's HYPE invoice really is printed as
+ * 04/QUO-HYPE - an invoice carrying the quotation prefix. Using {type} here would
+ * produce INV-HYPE, a number that has never existed on any of their paper.
+ */
+const HYPE_INV = '{seq:2}/QUO-{company}';
 
 console.log('\n--- reproducing numbers taken from the office PDFs ---');
 
@@ -55,6 +61,34 @@ check(
   }).value,
   '003/QUO-HYPE',
 );
+
+// An invoice, carrying the QUOTATION prefix, because that is what the office
+// prints. Read off 04/QUO-HYPE on the Northwood Coffee invoice.
+check(
+  'invoice HYPE 04/QUO-HYPE - prefix stays QUO on an invoice',
+  composeNumber({
+    format: HYPE_INV, seq: 4, code: null, docType: 'INVOICE',
+    company: 'HYPE', date: '2026-06-15',
+  }).value,
+  '04/QUO-HYPE',
+);
+check(
+  'invoice HYPE asks for a sequence only, no code',
+  composeNumber({
+    format: HYPE_INV, seq: 4, docType: 'INVOICE', company: 'HYPE', date: '2026-06-15',
+  }).needs,
+  ['seq'],
+);
+check(
+  'the {type} placeholder would have said INV, which is why it is not used',
+  composeNumber({
+    format: '{seq:2}/{type}-{company}', seq: 4, docType: 'INVOICE', company: 'HYPE',
+    date: '2026-06-15',
+  }).value,
+  '04/INV-HYPE',
+);
+check('HYPE invoice sequence pads to two digits', padSequence(4, 2), '04');
+check('HYPE invoice sequence past 99 does not truncate', padSequence(104, 2), '104');
 
 console.log('\n--- the parts that are fixed by the date, not typed ---');
 check('September is IX', composeNumber({ format: TNT_QUO, seq: 37, code: 'SA', docType: 'QUOTATION', company: 'TNT', date: '2026-09-01' }).value.split('/')[3], 'IX');
