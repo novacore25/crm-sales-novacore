@@ -188,10 +188,13 @@ function Letterhead({
   src,
   height,
   edge,
+  logo,
 }: {
   src: string;
   height: string;
   edge: 'top' | 'bottom';
+  /** Overlay drawn on top, for artwork that was taken out of the SVG. */
+  logo?: ReactNode;
 }) {
   return (
     <div
@@ -202,6 +205,45 @@ function Letterhead({
         backgroundRepeat: 'no-repeat',
         backgroundPosition: edge === 'top' ? 'top center' : 'bottom center',
       }}
+    >
+      {logo}
+    </div>
+  );
+}
+
+/**
+ * The TNT mark, overlaid on the letterhead.
+ *
+ * The SVG carried it as a luminance-masked raster, and that mask leaves a
+ * hairline rectangle around the logo in Chromium's PDF output - invisible on
+ * screen, present on paper, and reproducing when the raw SVG is printed
+ * untouched. scripts/strip-tnt-logo.py takes the masked group out of both files.
+ *
+ * It also turned out to be the wrong artwork: that raster is a square lockup
+ * reading "THICK & THIN MEDIA" over "Official TikTok Agency", and neither line
+ * appears on the office's quotation PDFs. The wordmark beside the mark in those
+ * PDFs is separate vector art in the SVG and is untouched by the strip, so only
+ * the mark needs replacing.
+ *
+ * The office's own logo-tnt-lanscape.png was the first choice and could not be
+ * used: its mark is 67px, and at the 16.6mm the mark actually occupies on the
+ * page that is 99 dpi. Vector-accurate enough for a screen, visibly soft in
+ * print. This mark is lifted out of the SVG's own 615px artwork instead and
+ * baked to a plain RGBA PNG with no mask, so it prints at 472 dpi.
+ *
+ * Placed from the SVG's geometry rather than by eye. The masked group sat at
+ * translate(36.586, 0.867) with scale 0.145047, and the mark's ink filled
+ * x 145..468 and y 93..417 of that image, which puts it at 20.2mm across and
+ * 5.0mm down, 16.4mm square. The vector wordmark starts at 42mm, so the gap that
+ * produces is the one the design already had.
+ */
+function TntMark() {
+  return (
+    // eslint-disable-next-line @next/next/no-img-element
+    <img
+      src="/documents/logo-tnt-mark.png"
+      alt=""
+      style={{ position: 'absolute', left: '20.2mm', top: '5.0mm', width: '16.4mm' }}
     />
   );
 }
@@ -318,7 +360,19 @@ function TntTemplate({ doc }: { doc: PreviewDoc }) {
          at 33.2-45.9mm. This has to match the Letterhead height below or the
          print spacer is short and the body starts underneath the fixed header. */
       headerHeight="46mm"
-      header={<Letterhead src={tntArt} height="46mm" edge="top" />}
+      header={
+        /*
+         * The wrapper is pulled out to the page's own edges. The sheet gives the
+         * header 14mm of side padding for the body text, and the mark's offsets
+         * are measured from the trim edge, so without this it landed 14mm too far
+         * right and sat on top of the wordmark. The background inside is already
+         * full-bleed; this makes the overlay agree with it.
+         */
+        <div className="relative" style={{ margin: '0 -14mm' }}>
+          <Letterhead src={tntArt} height="46mm" edge="top" />
+          <TntMark />
+        </div>
+      }
       footer={<Letterhead src={tntArt} height="28.3mm" edge="bottom" />}
     >
       {/* No title band here. The word QUOTATION or INVOICE is part of the

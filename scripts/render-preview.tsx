@@ -1,4 +1,4 @@
-﻿import { DocumentPreview, type PreviewDoc } from "../src/components/documents/DocumentPreview";
+import { DocumentPreview, type PreviewDoc } from "../src/components/documents/DocumentPreview";
 import { renderToStaticMarkup } from "react-dom/server";
 import { writeFileSync, copyFileSync } from "node:fs";
 
@@ -6,6 +6,7 @@ const out = "C:/Users/Banzilla/AppData/Local/Temp/opencode/docpreview/documents"
 copyFileSync("public/documents/tnt-quotation.svg", `${out}/tnt-quotation.svg`);
 copyFileSync("public/documents/tnt-invoice.svg", `${out}/tnt-invoice.svg`);
 copyFileSync("public/documents/hype-header.svg", `${out}/hype-header.svg`);
+copyFileSync("public/documents/logo-tnt-mark.png", `${out}/logo-tnt-mark.png`);
 writeFileSync("C:/Users/Banzilla/AppData/Local/Temp/opencode/docpreview/.gitkeep", "");
 
 const tnt: PreviewDoc = {
