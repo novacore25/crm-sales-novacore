@@ -28,10 +28,45 @@ export interface DashboardStats {
   totalChated: number;
   totalResponsed: number;
   totalSetMeeting: number;
+  /** Won leads inside the selected window. Comparable to the stage counts. */
   dealsWon: number;
+  /** Won leads, all time. The Conversion Success card is a lifetime figure. */
+  dealsWonLifetime: number;
   lostDeals: number;
   failedDeals: number;
   totalRevenue: number;
+}
+
+/**
+ * Won leads whose funnel is incomplete, so the lord can see exactly which rows
+ * to repair.
+ *
+ * A lead that reached Close Win without a Responsed row is not a formatting
+ * problem. It means the scorecard's conversion rate is dividing wins by a
+ * denominator that does not contain them, and the number on screen is not a
+ * measurement of the team. The fix is to log the missing stage, which is a
+ * decision only the lord can make per lead - so this reports, it does not
+ * fabricate.
+ *
+ * `missingStages` is derived from the rows that exist, not assumed. A lead with
+ * no funnel at all is reported as missing everything, which is the 9-deal group
+ * holding Rp 1.92 billion.
+ */
+export interface DataHealthRow {
+  leadId: string;
+  brandName: string;
+  status: string;
+  /** The single highest stage recorded, or null when there is no history. */
+  lastStage: string | null;
+  /** How many of the expected stages before Close Win are absent. */
+  missingCount: number;
+  /** Names of the absent stages, in funnel order. */
+  missingStages: string[];
+  /** Revenue attributed to this lead, from the funnel or the lead row. */
+  revenue: number;
+  /** Who last touched it, for whoever does the repair. */
+  lastBy: string | null;
+  lastTouchedAt: string | null;
 }
 
 export interface ContributionRow {
@@ -59,6 +94,7 @@ const EMPTY_STATS: DashboardStats = {
   totalResponsed: 0,
   totalSetMeeting: 0,
   dealsWon: 0,
+  dealsWonLifetime: 0,
   lostDeals: 0,
   failedDeals: 0,
   totalRevenue: 0,
@@ -178,8 +214,26 @@ export async function getDashboardStats(filters: {
       (SELECT COUNT(*)::int FROM scoped_funnel WHERE has_chated)       AS total_chated,
       (SELECT COUNT(*)::int FROM scoped_funnel WHERE has_responsed)    AS total_responsed,
       (SELECT COUNT(*)::int FROM scoped_funnel WHERE has_set_meeting)  AS total_set_meeting,
+      -- Won leads INSIDE the window, matched to the same funnel scope as the
+      -- stages above.
+      --
+      -- This was a count of valid_leads with status 'Close Win', which is
+      -- all-time. The dashboard then divided that by
+      -- total_responsed, which IS window-scoped, and got 48 over 26 = 185%.
+      -- The two numbers were never comparable: one counted every deal the
+      -- company has ever closed, the other counted responses inside the
+      -- selected month. It looked like the team converted more than 100% of
+      -- responses, and the actual finding was a query that compared a lifetime
+      -- numerator with a monthly denominator.
+      (SELECT COUNT(DISTINCT vl.id) FROM valid_leads vl
+         JOIN funnel_history fh ON fh.lead_id = vl.id AND fh.stage = 'Close Win'
+        WHERE (${startDate}::timestamptz IS NULL OR fh.date_occurred >= ${startDate})
+          AND (${endDate}::timestamptz IS NULL OR fh.date_occurred <= ${endDate})
+          AND (${admin}::text IS NULL OR fh.by_user_name = ${admin}))   AS deals_won,
+      -- All-time wins, kept for the Conversion Success card, which is a
+      -- lifetime figure by design.
       (SELECT COUNT(*)::int FROM valid_leads
-        WHERE status = 'Close Win')                                    AS deals_won,
+        WHERE status = 'Close Win')                                    AS deals_won_lifetime,
       (SELECT COUNT(*)::int FROM valid_leads
         WHERE status = 'Close Lost')                                   AS lost_deals,
       (SELECT COUNT(*)::int FROM valid_leads
@@ -198,6 +252,7 @@ export async function getDashboardStats(filters: {
     totalResponsed: Number(row.total_responsed ?? 0),
     totalSetMeeting: Number(row.total_set_meeting ?? 0),
     dealsWon: Number(row.deals_won ?? 0),
+    dealsWonLifetime: Number(row.deals_won_lifetime ?? 0),
     lostDeals: Number(row.lost_deals ?? 0),
     failedDeals: Number(row.failed_deals ?? 0),
     totalRevenue: Number(row.total_revenue ?? 0),
@@ -447,4 +502,104 @@ export async function getGhostedLeads(filters: {
       r.last_stage_date === null ? null : new Date(String(r.last_stage_date)).toISOString(),
     daysPassed: Number(r.days_passed ?? 0),
   }));
+}
+
+/**
+ * Won leads whose funnel is missing a stage the scorecard depends on.
+ *
+ * The required stages are expressed in the SQL below, not here, so the query
+ * stays the single source of truth for what "incomplete" means. `Chated` is
+ * deliberately not one of them: a brand can arrive through a referral and close
+ * without anyone logging a chat, and requiring one would invent a rule the
+ * business does not have. The stages that need justifying are the ones the
+ * scorecard divides by.
+ *
+ * Read-only. It reports which leads to repair and who touched them last; it
+ * cannot repair them, because whether a stage "really happened" is a question
+ * about a conversation nobody logged. Fabricating the row would make the number
+ * right and the data a lie.
+ *
+ * Lifetime scope, not the date window. This is a data-quality audit, and asking
+ * "what is broken right now" should not change the answer because someone picked
+ * a different month.
+ */
+export async function getFunnelIncompleteWins(): Promise<DataHealthRow[]> {
+  await requireUser();
+
+  const result = await db.execute(sql`
+    WITH stages AS (
+      SELECT
+        fh.lead_id,
+        bool_or(fh.stage = 'Chated')      AS has_chated,
+        bool_or(fh.stage = 'Responsed')   AS has_responsed,
+        bool_or(fh.stage = 'Set Meeting') AS has_set_meeting
+      FROM funnel_history fh
+      GROUP BY fh.lead_id
+    ),
+    last_touch AS (
+      SELECT DISTINCT ON (fh.lead_id)
+        fh.lead_id,
+        fh.stage,
+        fh.by_user_name,
+        fh.date_occurred
+      FROM funnel_history fh
+      ORDER BY fh.lead_id, fh.date_occurred DESC, fh.created_at DESC
+    ),
+    win_value AS (
+      SELECT DISTINCT ON (fh.lead_id)
+        fh.lead_id,
+        COALESCE(fh.deal_value, l.deal_value, 0) AS revenue
+      FROM funnel_history fh
+      JOIN leads l ON l.id = fh.lead_id
+      WHERE fh.stage = 'Close Win'
+      ORDER BY fh.lead_id, fh.date_occurred DESC, fh.created_at DESC
+    )
+    SELECT
+      l.id                                  AS lead_id,
+      l.brand_name,
+      l.status,
+      lt.stage                              AS last_stage,
+      lt.by_user_name                       AS last_by,
+      lt.date_occurred                      AS last_touched_at,
+      COALESCE(wv.revenue, 0)               AS revenue,
+      -- Built as an array in funnel order so the UI can show "missing:
+      -- Responsed, Set Meeting" without hardcoding the sequence client-side.
+      ARRAY_REMOVE(ARRAY[
+        CASE WHEN COALESCE(s.has_responsed, false)   THEN NULL ELSE 'Responsed' END,
+        CASE WHEN COALESCE(s.has_set_meeting, false) THEN NULL ELSE 'Set Meeting' END
+      ], NULL)                               AS missing_stages
+    FROM leads l
+    LEFT JOIN stages s      ON s.lead_id = l.id
+    LEFT JOIN last_touch lt ON lt.lead_id = l.id
+    LEFT JOIN win_value wv  ON wv.lead_id = l.id
+    WHERE l.is_deleted = false
+      AND l.status = 'Close Win'
+      AND (NOT COALESCE(s.has_responsed, false) OR NOT COALESCE(s.has_set_meeting, false))
+    -- Worst first: no history at all, then the most missing stages, then money.
+    ORDER BY
+      (lt.lead_id IS NULL) DESC,
+      cardinality(ARRAY_REMOVE(ARRAY[
+        CASE WHEN COALESCE(s.has_responsed, false)   THEN NULL ELSE 1 END,
+        CASE WHEN COALESCE(s.has_set_meeting, false) THEN NULL ELSE 1 END
+      ], NULL)) DESC,
+      COALESCE(wv.revenue, 0) DESC
+    LIMIT 100
+  `);
+
+  const rows = rowsOf<Record<string, unknown>>(result);
+  return rows.map((r) => {
+    const missing = Array.isArray(r.missing_stages) ? r.missing_stages.map(String) : [];
+    return {
+      leadId: String(r.lead_id),
+      brandName: String(r.brand_name ?? '-'),
+      status: String(r.status ?? '-'),
+      lastStage: r.last_stage === null ? null : String(r.last_stage),
+      missingCount: missing.length,
+      missingStages: missing,
+      revenue: Number(r.revenue ?? 0),
+      lastBy: r.last_by === null ? null : String(r.last_by),
+      lastTouchedAt:
+        r.last_touched_at === null ? null : new Date(String(r.last_touched_at)).toISOString(),
+    };
+  });
 }

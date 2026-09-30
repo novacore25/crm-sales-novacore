@@ -11,7 +11,7 @@ import type {
   IndividualTargetDTO,
   LeadStatus,
 } from '@/types';
-import { getDashboardStats, getIndividualContributions, getGhostedLeads } from '@/app/actions/analytics-actions';
+import { getDashboardStats, getIndividualContributions, getGhostedLeads, getFunnelIncompleteWins, type DataHealthRow } from '@/app/actions/analytics-actions';
 import { getLeadsPage, getCategories } from '@/app/actions/lead-actions';
 import { Database, Send, ReplyAll, Handshake, Trophy, Filter, TrendingUp, Users, Target, Search, Phone, Info, Check, Clock, AlertTriangle, Square, CheckSquare } from 'lucide-react';
 import { cn } from '@/lib/utils';
@@ -19,6 +19,7 @@ import { assignablePICNames } from '@/lib/pic-filter';
 import { format, startOfMonth } from 'date-fns';
 import { AnimatePresence, motion } from 'motion/react';
 import BulkStatusModal from './BulkStatusModal';
+import DataHealthPanel from './DataHealthPanel';
 import { useRouter } from 'next/navigation';
 import { toast } from 'sonner';
 
@@ -39,6 +40,7 @@ const EMPTY_STATS: DashboardStatsDTO = {
   totalResponsed: 0,
   totalSetMeeting: 0,
   dealsWon: 0,
+  dealsWonLifetime: 0,
   lostDeals: 0,
   failedDeals: 0,
   totalRevenue: 0,
@@ -180,6 +182,7 @@ export default function DashboardClient({
   const [stats, setStats] = useState<DashboardStatsDTO>(initialStats);
   const [contributions, setContributions] = useState<ContributionDTO[]>(initialContributions);
   const [ghosted, setGhosted] = useState<GhostedLeadDTO[]>(initialGhosted);
+  const [incompleteWins, setIncompleteWins] = useState<DataHealthRow[]>([]);
 
   const [tableLeads, setTableLeads] = useState<LeadDTO[]>([]);
   const [totalFilteredLeads, setTotalFilteredLeads] = useState(0);
@@ -229,7 +232,7 @@ export default function DashboardClient({
     };
 
     const run = async () => {
-      const [nextStats, nextContributions, nextGhosted] = await Promise.all([
+      const [nextStats, nextContributions, nextGhosted, nextIncomplete] = await Promise.all([
         getDashboardStats(analyticsFilters),
         getIndividualContributions(analyticsFilters),
         getGhostedLeads({
@@ -242,11 +245,23 @@ export default function DashboardClient({
           // be looking at. Narrowing it to the selected window would hide
           // exactly the leads that need chasing.
         }),
+        // Deliberately not scoped by the filters. This is an audit of broken
+        // data, and "what needs repairing" must not change because someone
+        // picked a different month - otherwise a broken lead can be hidden by
+        // choosing the wrong date.
+        //
+        // Fetched separately rather than inside Promise.all's destructuring
+        // error path: if this one query fails, the scorecard should still load.
+        getFunnelIncompleteWins().catch((e) => {
+          console.error('[data-health] failed', e);
+          return [];
+        }),
       ]);
       if (cancelled) return;
       setStats(nextStats);
       setContributions(nextContributions);
       setGhosted(nextGhosted);
+      setIncompleteWins(nextIncomplete);
     };
 
     startTransition(async () => {
@@ -351,7 +366,12 @@ export default function DashboardClient({
     chated: stats.totalChated,
     responsed: stats.totalResponsed,
     meeting: stats.totalSetMeeting,
+    // Wins INSIDE the window. This is the only figure comparable to the stage
+    // counts above, so it is what the rates divide.
     win: stats.dealsWon,
+    // Wins, all time. The Conversion Success card is a lifetime headline, and
+    // mixing it with a windowed rate is what produced a 185% Efficiency Rate.
+    winLifetime: stats.dealsWonLifetime,
     lost: stats.lostDeals,
     failed: stats.failedDeals,
     revenue: stats.totalRevenue,
@@ -395,9 +415,13 @@ export default function DashboardClient({
       response: pct(scorecard.chated, scorecard.inScope),
       // Of the leads that responded, how many became a meeting.
       interest: pct(scorecard.meeting, scorecard.responsed),
-      // Of the leads that responded, how many closed.
+      // Wins inside the window over responses inside the window. Both sides
+      // now come from the same scoped set, which is what makes the ratio mean
+      // anything.
       conversion: pct(scorecard.win, scorecard.responsed),
-      // Non-null when the true ratio exceeds 100, so the card can flag it.
+      // Non-null when the true ratio still exceeds 100 after scoping. That
+      // residual is real missing data, not a query mistake: a win inside the
+      // window whose response was logged outside it, or never logged.
       conversionOverflow: (() => {
         const raw = rawPct(scorecard.win, scorecard.responsed);
         return raw > 100 ? raw : null;
@@ -732,12 +756,12 @@ export default function DashboardClient({
         */}
         {rates.conversionOverflow !== null && (
           <p className="text-[11px] text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 -mt-1 leading-relaxed">
-            <span className="font-black">Catatan:</span> rasio mentah Efficiency
-            Rate adalah <span className="font-black">{rates.conversionOverflow.toFixed(0)}%</span>,
-            karena {scorecard.win} deal Closed Win tapi hanya {scorecard.responsed}{' '}
-            lead yang punya stage Responsed. Angka ditampilkan maksimal 100% —
-            {scorecard.win - scorecard.responsed} deal menutup tanpa catatan respons.
-            Ini masalah pencatatan stage, bukan performa tim.
+            <span className="font-black">Catatan:</span> {scorecard.win} deal Close Win di periode ini
+            tapi hanya {scorecard.responsed} lead yang punya stage Responsed di periode yang sama
+            ({rates.conversionOverflow.toFixed(0)}%). Bisa karena responsnya tercatat di luar
+            periode ini, atau belum dicatat sama sekali. Lihat panel{' '}
+            <span className="font-black">Data Health</span> di bawah untuk daftar lead yang perlu
+            dilengkapi.
           </p>
         )}
 
@@ -759,7 +783,7 @@ export default function DashboardClient({
 
                 <div className="mb-8">
                   <h3 className="text-5xl font-black tracking-tighter mb-1 flex items-baseline gap-3">
-                    {scorecard.win} <span className="text-xl text-slate-400 font-bold tracking-tight">Deals Wan</span>
+                    {scorecard.winLifetime} <span className="text-xl text-slate-400 font-bold tracking-tight">Deals Wan</span>
                   </h3>
                 </div>
 
@@ -1263,6 +1287,16 @@ export default function DashboardClient({
             </div>
           </div>
         </div>
+
+        {/*
+          Data Health sits below the scorecard on purpose. It is the answer to
+          "why does the Efficiency Rate look wrong", so it belongs where the
+          reader is already looking for the cause, not buried in an admin page
+          nobody opens. Read-only: it reports which leads to repair and links to
+          them, and deliberately cannot repair them, because whether a stage
+          really happened is a question about a conversation nobody logged.
+        */}
+        <DataHealthPanel rows={incompleteWins} />
       </div>
 
       {selectedLeadIds.length > 0 && (

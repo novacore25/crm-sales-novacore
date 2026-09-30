@@ -229,7 +229,10 @@ export interface DashboardStatsDTO {
   totalChated: number;
   totalResponsed: number;
   totalSetMeeting: number;
+  /** Won leads inside the selected window. Comparable to the stage counts. */
   dealsWon: number;
+  /** Won leads, all time. The Conversion Success card is a lifetime headline. */
+  dealsWonLifetime: number;
   lostDeals: number;
   failedDeals: number;
   totalRevenue: number;
