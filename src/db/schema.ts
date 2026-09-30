@@ -14,10 +14,14 @@ import {
 } from 'drizzle-orm/pg-core';
 
 import {
+  documentCompanyEnum,
+  documentStatusEnum,
+  documentTypeEnum,
   editRequestStatusEnum,
   forecastStatusEnum,
   interestLevelEnum,
   leadStatusEnum,
+  productEnum,
   taskPriorityEnum,
   taskStatusEnum,
   userRoleEnum,
@@ -363,6 +367,198 @@ export const oiTargets = pgTable(
   (t) => [uniqueIndex('oi_targets_month_product_key').on(t.monthYear, t.product)],
 );
 
+// ---------------------------------------------------------------------------
+// Documents: quotation and invoice generator
+// ---------------------------------------------------------------------------
+
+/**
+ * One numbering sequence, plus the format string that turns a counter into a
+ * real document number.
+ *
+ * Why this is a table and not a constant: the three series in use do not agree
+ * with each other.
+ *
+ *   TNT quotation   037/QUO-TNT/SA/IX/26     roman month, two-digit year
+ *   TNT invoice     01/INV-TNT/MCN/VIII/26   roman month, two-digit year
+ *   HYPE            003/QUO-HYPE             no month, no year at all
+ *
+ * HYPE also appears to run ONE counter across both document types - a quotation
+ * is 003 and the next invoice is 004 - while TNT keeps the two apart. And
+ * HYPE's invoice still says `QUO` in the prefix, which is probably a mistake in
+ * the old template but is already printed on paper the client holds.
+ *
+ * Encoding any of that in code would mean a code change the first time the
+ * office decides differently. Here it is a row, and the office can change it.
+ *
+ * `nextNumber` is the number the NEXT document will receive, not the last one
+ * used. It is advanced inside the same transaction that inserts the document,
+ * under a row lock, so two people issuing at the same moment queue instead of
+ * colliding.
+ */
+export const documentSeries = pgTable(
+  'document_series',
+  {
+    id: text('id').primaryKey(),
+    company: documentCompanyEnum('company').notNull(),
+    docType: documentTypeEnum('doc_type').notNull(),
+
+    /**
+     * Template for the printed number.
+     *
+     * Placeholders, replaced in document-actions.ts:
+     *   {seq}   counter, zero-padded to the width in {seq:N}
+     *   {type}  QUO or INV
+     *   {seg}   the free-form middle segment (SA, MCN, ...) chosen per document
+     *   {roman} month in Roman numerals, from the issue date
+     *   {yy}    two-digit year
+     *
+     * Example for TNT: `{seq:3}/{type}-TNT/{seg}/{roman}/{yy}`
+     */
+    format: text('format').notNull(),
+
+    /** Number the next document in this series will get. */
+    nextNumber: integer('next_number').notNull().default(1),
+
+    /** Stop offering this series without deleting it. */
+    isActive: boolean('is_active').notNull().default(true),
+
+    label: text('label'),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow(),
+  },
+  (t) => [uniqueIndex('document_series_company_type_key').on(t.company, t.docType)],
+);
+
+/**
+ * A quotation or invoice. The archive.
+ *
+ * Bank details and the signatory are stored ON the document rather than read
+ * from a settings table at print time. That is the whole point of the archive:
+ * a document printed last year must still show the account number that was
+ * current last year. Reading live settings would silently rewrite history every
+ * time the bank details change.
+ */
+export const documents = pgTable(
+  'documents',
+  {
+    id: text('id').primaryKey(),
+    seriesId: text('series_id')
+      .references(() => documentSeries.id, { onDelete: 'restrict' })
+      .notNull(),
+
+    status: documentStatusEnum('status').notNull().default('DRAFT'),
+
+    /**
+     * The printed number. NULL while the document is a DRAFT.
+     *
+     * A DRAFT deliberately holds no number, so drafts that are started and
+     * abandoned never burn one. Numbering happens when the document is issued,
+     * inside the issuing transaction.
+     */
+    number: text('number'),
+
+    /**
+     * The number this document replaces, when this is a REVISION.
+     *
+     * The original is never modified. A revision points back at it so the
+     * archive can show "supersedes 01/INV-TNT/MCN/VIII/26".
+     */
+    revisionOf: text('revision_of'),
+
+    /**
+     * Client's legal name, typed freely.
+     *
+     * Not a foreign key to leads. A quotation is frequently issued to a PT that
+     * does not appear anywhere in the CRM, and the name on the document has to
+     * be exactly what goes on the invoice - which is often the registered
+     * entity rather than the brand the team calls them.
+     */
+    clientName: text('client_name').notNull(),
+
+    /** Which product this concerns. Affects nothing except the segment field. */
+    product: productEnum('product'),
+
+    issueDate: date('issue_date'),
+    period: text('period'),
+
+    /** Sum of item prices. Computed server-side; never trusted from the client. */
+    subtotal: numeric('subtotal', { precision: 18, scale: 2 }).notNull().default('0'),
+
+    /**
+     * Tax as a percentage, entered by hand.
+     *
+     * Deliberately free-form rather than a fixed rate: the TNT sample shows
+     * `PPN 11%` struck through with a different figure in its place, and HYPE
+     * quotes 0,5%. The office decides the rate per document, and the rule may
+     * change again when the accountant answers. The arithmetic is still done
+     * here - only the rate is a human decision.
+     */
+    taxRate: numeric('tax_rate', { precision: 6, scale: 3 }),
+    taxLabel: text('tax_label'),
+    taxAmount: numeric('tax_amount', { precision: 18, scale: 2 }).notNull().default('0'),
+    grandTotal: numeric('grand_total', { precision: 18, scale: 2 }).notNull().default('0'),
+
+    /** Free-form conditions printed under the table. */
+    terms: text('terms'),
+
+    /** Free-text middle segment of the number, e.g. `SA` or `MCN`. */
+    numberSegment: text('number_segment'),
+
+    /**
+     * Printed as its own line under the table, e.g. "Approve by VOJIC SKIN".
+     * Kept separate from client_name because the two differ on the samples.
+     */
+    approverName: text('approver_name'),
+
+    // --- snapshots: frozen at issue time -------------------------------------
+    bankName: text('bank_name'),
+    bankAccountName: text('bank_account_name'),
+    bankAccountNumber: text('bank_account_number'),
+    bankBranch: text('bank_branch'),
+    signatoryName: text('signatory_name'),
+    signatoryTitle: text('signatory_title'),
+    /** Which template renders this. Frozen so a template change never rewrites history. */
+    templateKey: text('template_key'),
+
+    createdBy: text('created_by').references(() => users.id, { onDelete: 'set null' }),
+    createdByName: text('created_by_name'),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow(),
+    issuedAt: timestamp('issued_at', { withTimezone: true }),
+    updatedBy: text('updated_by').references(() => users.id, { onDelete: 'set null' }),
+    updatedByName: text('updated_by_name'),
+  },
+  (t) => [
+    index('documents_series_idx').on(t.seriesId),
+    index('documents_status_idx').on(t.status),
+    index('documents_issue_date_idx').on(t.issueDate),
+    // One number per series, and one number per document. Postgres treats NULLs
+    // as distinct here, so the many DRAFTs that hold no number do not collide.
+    uniqueIndex('documents_series_number_key').on(t.seriesId, t.number),
+  ],
+);
+
+/** Line items. Free-form, because every deal is described differently. */
+export const documentItems = pgTable(
+  'document_items',
+  {
+    id: text('id').primaryKey(),
+    documentId: text('document_id')
+      .references(() => documents.id, { onDelete: 'cascade' })
+      .notNull(),
+    position: integer('position').notNull().default(0),
+    /** Short headline, e.g. "Affiliate Booster" or "Live Streaming Creator". */
+    title: text('title').notNull(),
+    /** The long, bulleted body. Newlines are meaningful and are preserved. */
+    description: text('description'),
+    /** Duration or campaign length, printed in its own column. */
+    period: text('period'),
+    price: numeric('price', { precision: 18, scale: 2 }).notNull().default('0'),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow(),
+  },
+  (t) => [index('document_items_document_idx').on(t.documentId)],
+);
+
 /**
  * Free-form key/value settings.
  *
@@ -431,6 +627,21 @@ export const auditLogsRelations = relations(auditLogs, ({ one }) => ({
   user: one(users, { fields: [auditLogs.userId], references: [users.id] }),
 }));
 
+export const documentSeriesRelations = relations(documentSeries, ({ many }) => ({
+  documents: many(documents),
+}));
+
+export const documentsRelations = relations(documents, ({ one, many }) => ({
+  series: one(documentSeries, { fields: [documents.seriesId], references: [documentSeries.id] }),
+  items: many(documentItems),
+  createdByUser: one(users, { fields: [documents.createdBy], references: [users.id] }),
+  updatedByUser: one(users, { fields: [documents.updatedBy], references: [users.id] }),
+}));
+
+export const documentItemsRelations = relations(documentItems, ({ one }) => ({
+  document: one(documents, { fields: [documentItems.documentId], references: [documents.id] }),
+}));
+
 export type User = typeof users.$inferSelect;
 export type NewUser = typeof users.$inferInsert;
 export type Lead = typeof leads.$inferSelect;
@@ -444,3 +655,9 @@ export type GlobalTarget = typeof globalTargets.$inferSelect;
 export type IndividualTarget = typeof individualTargets.$inferSelect;
 export type AuditLog = typeof auditLogs.$inferSelect;
 export type RolePermissions = typeof rolePermissions.$inferSelect;
+export type DocumentSeries = typeof documentSeries.$inferSelect;
+export type NewDocumentSeries = typeof documentSeries.$inferInsert;
+export type DocumentRow = typeof documents.$inferSelect;
+export type NewDocumentRow = typeof documents.$inferInsert;
+export type DocumentItem = typeof documentItems.$inferSelect;
+export type NewDocumentItem = typeof documentItems.$inferInsert;

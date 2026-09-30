@@ -1,7 +1,7 @@
 'use client'
 
 import React, { useState } from 'react';
-import { LayoutDashboard, Users, ClipboardCheck, UserCog, LogOut, ShieldCheck, Target, TrendingUp, Menu, Search } from 'lucide-react';
+import { LayoutDashboard, Users, ClipboardCheck, UserCog, LogOut, ShieldCheck, Target, TrendingUp, Menu, Search, FileText } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { usePathname, useRouter } from 'next/navigation';
 import Link from 'next/link';
@@ -153,11 +153,26 @@ export default function Sidebar({
             onMouseLeave={handleMouseLeave}
           />
 
-          <NavItem 
-            active={isActive('/tasks')} 
-            onClick={() => handleNavClick('/tasks')} 
-            icon={<ClipboardCheck className="w-5 h-5" />} 
-            label="Sales Tasks" 
+          <NavItem
+            active={isActive('/tasks')}
+            onClick={() => handleNavClick('/tasks')}
+            icon={<ClipboardCheck className="w-5 h-5" />}
+            label="Sales Tasks"
+            sidebarOpen={sidebarOpen}
+            onMouseEnter={handleMouseEnter}
+            onMouseLeave={handleMouseLeave}
+          />
+
+          {/* Documents is open to every non-pending user. Issuing a quotation
+              or invoice is everyday sales work, and the tax rate and the
+              middle segment of the number are already manual decisions. What is
+              NOT open is deleting: an issued number is out in the world, and
+              reusing it is worse than a visible gap in the sequence. */}
+          <NavItem
+            active={isActive('/documents')}
+            onClick={() => handleNavClick('/documents')}
+            icon={<FileText className="w-5 h-5" />}
+            label="Documents"
             sidebarOpen={sidebarOpen}
             onMouseEnter={handleMouseEnter}
             onMouseLeave={handleMouseLeave}

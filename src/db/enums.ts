@@ -37,6 +37,43 @@ export const forecastStatusEnum = pgEnum('forecast_status', ['WIN', 'OPEN', 'LOS
 
 export const productEnum = pgEnum('product', ['MCN', 'TNT', 'HYPE']);
 
+// ---------------------------------------------------------------------------
+// Documents (quotation / invoice)
+// ---------------------------------------------------------------------------
+
+/**
+ * Document lifecycle.
+ *
+ * DRAFT   - still being typed. No number is assigned, so abandoning one costs
+ *           nothing. Fully editable.
+ * ISSUED  - a real document. The number is assigned and the record is locked,
+ *           because a number that has left the office cannot change meaning.
+ * CANCELLED - the number is spent and is never reused, even though no document
+ *           stands behind it. That is deliberate: a gap in the sequence is
+ *           visible and explainable, a reused number is not.
+ * REVISION - a replacement for an ISSUED document, carrying the same base number
+ *           with an /R1 suffix. The original stays in the archive untouched.
+ */
+export const documentStatusEnum = pgEnum('document_status', [
+  'DRAFT',
+  'ISSUED',
+  'CANCELLED',
+  'REVISION',
+]);
+
+/**
+ * Which company a document is issued under.
+ *
+ * Not the same as `productEnum`. MCN is a product sold through the Thick and
+ * Thin letterhead, so "which logo goes on top" and "which product is this" are
+ * genuinely different questions. A company maps to a template; the product does
+ * not.
+ */
+export const documentCompanyEnum = pgEnum('document_company', ['TNT', 'HYPE']);
+
+/** Quotation or invoice. */
+export const documentTypeEnum = pgEnum('document_type', ['QUOTATION', 'INVOICE']);
+
 /** Funnel stages, in pipeline order. Mirrors the STAGES array in the UI. */
 export const FUNNEL_STAGES = [
   'Leads',
