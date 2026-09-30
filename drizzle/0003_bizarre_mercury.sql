@@ -4,23 +4,25 @@
 -- has no IF NOT EXISTS anywhere, and this one has to be applied to a live
 -- database by hand like the previous two.
 --
--- `next_number` is seeded from the numbers already in use, so the first
--- document this system issues does not collide with one the office printed
--- outside it:
---   TNT quotation   037/QUO-TNT/SA/IX/26    -> next 38
---   TNT invoice     01/INV-TNT/MCN/VIII/26  -> next 2
---   HYPE            003/QUO-HYPE             -> next 5
+-- `next_number` is only a SUGGESTION pre-filled in the form. The office types
+-- the real number, because nobody can currently say what every segment means -
+-- `SA` in one sample, `MCN` in another, and no guarantee those are the only
+-- two. A system that guesses a number and gets it wrong is worse than one that
+-- asks, because the wrong number is already printed before anyone notices.
 --
--- The HYPE figure is the uncertain one. On paper HYPE's quotation is 003 and
--- its invoice is 04, which is consistent with ONE counter running across both
--- types. It is also consistent with two counters that happen to sit next to
--- each other. 5 is the only value that is safe under either reading: if the
--- counters are shared, 5 is simply correct; if they are separate, one number
--- is skipped, which is harmless and visible.
+-- The seeds are the numbers already in use, so the suggestion starts past them:
+--   TNT quotation   037/QUO-TNT/SA/IX/26    -> suggest 38
+--   TNT invoice     01/INV-TNT/MCN/VIII/26  -> suggest 2
+--   HYPE            003/QUO-HYPE             -> suggest 5
 --
--- If the office knows which it is, correct this in the app afterwards under
--- Documents -> Settings. Going below a number already printed is refused, so a
--- mistake here cannot quietly produce a duplicate.
+-- HYPE is the uncertain one. On paper its quotation is 003 and its invoice is
+-- 04, which reads as one counter across both types but is equally consistent
+-- with two counters that happen to sit next to each other. 5 is safe under
+-- either reading: correct if shared, and one skipped number if not.
+--
+-- Correct any of these in Documents -> Settings. Duplicate numbers are refused
+-- by the unique index, not by these values, so a wrong suggestion cannot
+-- produce a duplicate on its own.
 
 DO $$ BEGIN
   CREATE TYPE "public"."document_company" AS ENUM('TNT', 'HYPE');
@@ -46,8 +48,8 @@ CREATE TABLE IF NOT EXISTS "document_series" (
 	"id" text PRIMARY KEY NOT NULL,
 	"company" "document_company" NOT NULL,
 	"doc_type" "document_type" NOT NULL,
-	"format" text NOT NULL,
-	"next_number" integer DEFAULT 1 NOT NULL,
+	"format" text,
+	"next_number" integer,
 	"is_active" boolean DEFAULT true NOT NULL,
 	"label" text,
 	"created_at" timestamp with time zone DEFAULT now(),
@@ -108,10 +110,10 @@ CREATE INDEX IF NOT EXISTS "documents_issue_date_idx" ON "documents" USING btree
 CREATE UNIQUE INDEX IF NOT EXISTS "documents_series_number_key" ON "documents" USING btree ("series_id","number");
 
 -- Seed the three series in use. ON CONFLICT DO NOTHING so re-running this file
--- cannot reset a counter the office has already moved.
+-- cannot reset a suggestion the office has already corrected.
 INSERT INTO "document_series" ("id", "company", "doc_type", "format", "next_number", "label")
 VALUES
-  ('tnt-quotation', 'TNT',  'QUOTATION', '{seq:3}/{type}-TNT/{seg}/{roman}/{yy}', 38, 'Quotation - Thick and Thin'),
-  ('tnt-invoice',   'TNT',  'INVOICE',   '{seq:3}/{type}-TNT/{seg}/{roman}/{yy}', 2,  'Invoice - Thick and Thin'),
-  ('hype-quotation','HYPE', 'QUOTATION', '{seq:3}/QUO-HYPE',                        5,  'Quotation - HYPE')
+  ('tnt-quotation', 'TNT',  'QUOTATION', 'contoh: 037/QUO-TNT/SA/IX/26', 38, 'Quotation - Thick and Thin'),
+  ('tnt-invoice',   'TNT',  'INVOICE',   'contoh: 01/INV-TNT/MCN/VIII/26', 2, 'Invoice - Thick and Thin'),
+  ('hype-quotation','HYPE', 'QUOTATION', 'contoh: 003/QUO-HYPE', 5, 'Quotation - HYPE')
 ON CONFLICT DO NOTHING;

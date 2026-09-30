@@ -403,21 +403,27 @@ export const documentSeries = pgTable(
     docType: documentTypeEnum('doc_type').notNull(),
 
     /**
-     * Template for the printed number.
+     * House style for the printed number, shown as a hint on the form.
      *
-     * Placeholders, replaced in document-actions.ts:
-     *   {seq}   counter, zero-padded to the width in {seq:N}
-     *   {type}  QUO or INV
-     *   {seg}   the free-form middle segment (SA, MCN, ...) chosen per document
-     *   {roman} month in Roman numerals, from the issue date
-     *   {yy}    two-digit year
+     * NOT used to generate anything. The office does not yet know what every
+     * segment means - `SA` in one sample, `MCN` in another, and nobody can say
+     * what else exists - so the number is typed by the user and this is only
+     * there to show the convention.
      *
-     * Example for TNT: `{seq:3}/{type}-TNT/{seg}/{roman}/{yy}`
+     * A system that guesses a number and gets it wrong is worse than one that
+     * asks, because a wrong number has already been printed by the time anyone
+     * notices.
      */
-    format: text('format').notNull(),
+    format: text('format'),
 
-    /** Number the next document in this series will get. */
-    nextNumber: integer('next_number').notNull().default(1),
+    /**
+     * Suggested next number, pre-filled in the form. The user may change it.
+     *
+     * Nullable and advisory: a series with no suggestion simply opens an empty
+     * box. The unique index on (series_id, number) is what actually prevents a
+     * duplicate, not this.
+     */
+    nextNumber: integer('next_number'),
 
     /** Stop offering this series without deleting it. */
     isActive: boolean('is_active').notNull().default(true),

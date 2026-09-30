@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useState, useTransition } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { FileText, Plus, Search, Trash2, Ban, Send, FileCheck2 } from 'lucide-react';
 import { toast } from 'sonner';
@@ -8,6 +8,7 @@ import {
   cancelDocument,
   deleteDocument,
   getDocuments,
+  getNumberContext,
   issueDocument,
   type DocumentListRow,
 } from '@/app/actions/document-actions';
@@ -49,7 +50,14 @@ export default function DocumentsClient({ user }: { user: UserProfile }) {
   const [company, setCompany] = useState('ALL');
   const [loading, setLoading] = useState(true);
   const [busyId, setBusyId] = useState<string | null>(null);
-  const [, startTransition] = useTransition();
+
+  // The issue dialog. The number is typed rather than generated - nobody can
+  // currently say what every segment means, so the app supplies context instead
+  // of a guess: the last numbers issued in the same series, and a suggestion.
+  const [issueTarget, setIssueTarget] = useState<DocumentListRow | null>(null);
+  const [issueNumber, setIssueNumber] = useState('');
+  const [issueRecent, setIssueRecent] = useState<string[]>([]);
+  const [issueExample, setIssueExample] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -81,15 +89,32 @@ export default function DocumentsClient({ user }: { user: UserProfile }) {
     setPage(0);
   }, [search, status, company]);
 
-  const handleIssue = async (id: string) => {
-    setBusyId(id);
+  const openIssue = async (row: DocumentListRow) => {
+    setBusyId(row.id);
     try {
-      const res = await issueDocument(id);
+      const ctx = await getNumberContext(row.seriesId ?? '');
+      setIssueTarget(row);
+      setIssueNumber(ctx.suggestion ? String(ctx.suggestion) : '');
+      setIssueRecent(ctx.recent);
+      setIssueExample(ctx.example);
+    } catch {
+      toast.error('Gagal memuat konteks nomor.');
+    } finally {
+      setBusyId(null);
+    }
+  };
+
+  const confirmIssue = async () => {
+    if (!issueTarget) return;
+    setBusyId(issueTarget.id);
+    try {
+      const res = await issueDocument(issueTarget.id, issueNumber);
       if (!res.success) {
         toast.error(res.error ?? 'Gagal menerbitkan');
         return;
       }
       toast.success(`Nomor ${res.number} dibuat`);
+      setIssueTarget(null);
       load();
     } finally {
       setBusyId(null);
@@ -262,9 +287,9 @@ export default function DocumentsClient({ user }: { user: UserProfile }) {
                       <div className="flex items-center gap-1.5 justify-end">
                         {r.status === 'DRAFT' && (
                           <button
-                            onClick={() => handleIssue(r.id)}
+                            onClick={() => openIssue(r)}
                             disabled={busyId === r.id}
-                            title="Terbitkan - kunci dokumen dan buat nomor"
+                            title="Terbitkan - kunci dokumen dan beri nomor"
                             className="p-1.5 text-emerald-600 hover:bg-emerald-50 rounded-lg transition disabled:opacity-40"
                           >
                             <Send className="w-4 h-4" />
@@ -346,6 +371,95 @@ export default function DocumentsClient({ user }: { user: UserProfile }) {
           )}
         </div>
       </div>
+
+      {issueTarget && (
+        <div className="fixed inset-0 z-[60] bg-slate-950/50 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-white rounded-3xl shadow-2xl w-full max-w-lg overflow-hidden">
+            <div className="px-6 py-4 border-b border-slate-100">
+              <h3 className="text-sm font-black text-slate-900 uppercase tracking-widest flex items-center gap-2">
+                <Send className="w-4 h-4 text-emerald-600" />
+                Terbitkan dokumen
+              </h3>
+              <p className="text-[11px] text-slate-500 mt-1">
+                {issueTarget.clientName} &middot; {issueTarget.company}{' '}
+                {issueTarget.docType === 'QUOTATION' ? 'QUO' : 'INV'}
+              </p>
+            </div>
+
+            <div className="px-6 py-5 space-y-4">
+              <div>
+                <label className="text-[10px] font-black uppercase tracking-widest text-slate-400 block mb-1.5">
+                  Nomor dokumen
+                </label>
+                <input
+                  type="text"
+                  value={issueNumber}
+                  onChange={(e) => setIssueNumber(e.target.value)}
+                  placeholder="mis. 038/QUO-TNT/SA/IX/26"
+                  autoFocus
+                  className="w-full px-3 py-2.5 border border-slate-300 rounded-xl text-sm font-black text-slate-800 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-300 outline-none"
+                />
+                <p className="text-[10px] text-slate-400 mt-1.5 leading-relaxed">
+                  Nomor diketik manual. Aturan penomoran kantor belum seragam, jadi sistem
+                  tidak menebak - nomor yang salah bisa terlanjur tercetak dan dikirim
+                  ke klien.
+                </p>
+              </div>
+
+              {issueExample && (
+                <div className="bg-slate-50 border border-slate-200 rounded-xl px-3 py-2">
+                  <p className="text-[9px] font-black uppercase tracking-widest text-slate-400">
+                    Contoh dari dokumen yang sudah keluar
+                  </p>
+                  <p className="text-xs font-black text-slate-700 mt-0.5">{issueExample}</p>
+                </div>
+              )}
+
+              {issueRecent.length > 0 && (
+                <div>
+                  <p className="text-[10px] font-black uppercase tracking-widest text-slate-400 mb-1.5">
+                    Nomor terakhir di seri ini
+                  </p>
+                  <div className="flex flex-wrap gap-1.5">
+                    {issueRecent.map((n) => (
+                      <span
+                        key={n}
+                        className="px-2 py-0.5 rounded-md bg-slate-100 border border-slate-200 text-[10px] font-bold text-slate-600 tabular-nums"
+                      >
+                        {n}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              <div className="bg-amber-50 border border-amber-200 rounded-xl px-3 py-2.5">
+                <p className="text-[11px] text-amber-800 leading-relaxed">
+                  <span className="font-black">Setelah terbit, dokumen tidak bisa diedit.</span>{' '}
+                  Nomor ini akan keluar ke klien. Kalau ada yang salah, batalkan lalu buat
+                  nomor baru - jangan diedit, karena isi yang lama sudah pernah dibaca orang.
+                </p>
+              </div>
+            </div>
+
+            <div className="px-6 py-4 border-t border-slate-100 flex items-center justify-end gap-2">
+              <button
+                onClick={() => setIssueTarget(null)}
+                className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-[11px] font-black uppercase tracking-widest transition"
+              >
+                Batal
+              </button>
+              <button
+                onClick={confirmIssue}
+                disabled={!issueNumber.trim() || busyId === issueTarget.id}
+                className="px-5 py-2 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-40 text-white rounded-xl text-[11px] font-black uppercase tracking-widest transition shadow-lg shadow-emerald-500/20"
+              >
+                Terbitkan
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

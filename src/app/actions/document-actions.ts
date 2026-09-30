@@ -55,6 +55,7 @@ export interface DocumentTotals {
 
 export interface DocumentListRow {
   id: string;
+  seriesId: string;
   number: string | null;
   status: string;
   clientName: string;
@@ -69,60 +70,20 @@ export interface DocumentListRow {
 }
 
 // ---------------------------------------------------------------------------
-// Number formatting
+// Numbering
 // ---------------------------------------------------------------------------
-
-const ROMAN = [
-  [10, 'X'], [9, 'IX'], [5, 'V'], [4, 'IV'], [1, 'I'],
-] as const;
-
-function romanMonth(month: number): string {
-  let n = month;
-  let out = '';
-  for (const [value, glyph] of ROMAN) {
-    while (n >= value) {
-      out += glyph;
-      n -= value;
-    }
-  }
-  return out;
-}
-
-const pad = (n: number, width: number) => String(n).padStart(width, '0');
-
-/**
- * Turn a series format string and a counter into the printed number.
- *
- * The format is data, not code, because the three series in use disagree:
- *
- *   TNT   {seq:3}/{type}-TNT/{seg}/{roman}/{yy}   ->  037/QUO-TNT/SA/IX/26
- *   HYPE  {seq:3}/QUO-HYPE                        ->  003/QUO-HYPE
- *
- * An unknown placeholder is left as literal text rather than throwing, so a
- * typo in the format field shows up on the number instead of silently
- * producing a document with a wrong one.
- */
-function formatNumber(
-  format: string,
-  opts: { seq: number; type: string; segment: string | null; issueDate: string | null },
-): string {
-  const width = /\{seq:(\d+)\}/.exec(format)?.[1];
-  const d = opts.issueDate ? new Date(opts.issueDate) : null;
-  const month = d && !Number.isNaN(d.getTime()) ? d.getMonth() + 1 : null;
-  const year = d && !Number.isNaN(d.getTime()) ? d.getFullYear() : null;
-
-  return format
-    .replace(/\[\s*\]\s*/g, '')                       // tidy stray spaces in edit fields
-    .replace(/\{seq(?::(\d+))?\}/g, (_, w) => pad(opts.seq, Number(w ?? width ?? 1)))
-    .replace(/\{type\}/g, opts.type)
-    .replace(/\{seg\}/g, opts.segment ?? '')
-    .replace(/\{roman\}/g, month ? romanMonth(month) : '')
-    .replace(/\{yy\}/g, year ? String(year).slice(-2) : '')
-    .replace(/\/\s*\/\s*\//g, '/')
-    .replace(/-\s*-/g, '-')
-    .replace(/\s{2,}/g, ' ')
-    .trim();
-}
+//
+// There is no number generator here, and that is deliberate.
+//
+// The office cannot currently say what every segment of its numbering means: SA
+// in one sample, MCN in another, and no guarantee those are the only two. A
+// system that assembles a number from a format string produces a confident
+// wrong one, and by the time anyone notices it has been printed and sent.
+//
+// So the number is typed. What the app provides instead is the context needed
+// to type it correctly: the last numbers issued in the same series, and a
+// suggestion the lord can maintain. Uniqueness is what gets enforced, not the
+// pattern.
 
 // ---------------------------------------------------------------------------
 // Totals
@@ -256,7 +217,7 @@ export async function getDocuments(opts: {
 
   const result = await db.execute(sql`
     WITH filtered AS (
-      SELECT d.id, d.number, d.status, d.client_name, d.issue_date,
+      SELECT d.id, d.series_id, d.number, d.status, d.client_name, d.issue_date,
              d.grand_total, d.created_by_name, d.created_at,
              s.company, s.doc_type, s.label AS series_label,
              (SELECT COUNT(*)::int FROM document_items i WHERE i.document_id = d.id) AS item_count
@@ -266,7 +227,7 @@ export async function getDocuments(opts: {
     )
     SELECT
       COUNT(*) OVER() AS total,
-      id, number, status, client_name, company, doc_type, series_label,
+      id, series_id, number, status, client_name, company, doc_type, series_label,
       issue_date, grand_total, item_count, created_by_name, created_at
     FROM filtered
     ORDER BY created_at DESC
@@ -278,6 +239,7 @@ export async function getDocuments(opts: {
     total: rows.length > 0 ? Number(rows[0].total ?? 0) : 0,
     rows: rows.map((r) => ({
       id: String(r.id),
+      seriesId: String(r.series_id),
       number: r.number === null ? null : String(r.number),
       status: String(r.status),
       clientName: String(r.client_name),
@@ -492,36 +454,81 @@ export async function updateDocument(
 }
 
 /**
- * Issue a DRAFT: assign its number and lock it.
+ * Recent numbers already issued in a series, plus a suggestion.
  *
- * The counter is read under a row lock and advanced in the same transaction as
- * the insert, so two people issuing at the same moment queue behind each other
- * rather than both receiving 038. If the insert fails the whole transaction
- * rolls back and the number is handed back, so a failure never burns a number
- * that no document claims.
+ * The suggestion is advisory only. Nobody can currently say what every segment
+ * of the office's numbering means - `SA` in one sample, `MCN` in another, and
+ * no guarantee those are the only two - so the number is typed by the user and
+ * this exists to save them from having to remember what has already gone out.
+ *
+ * Showing the last numbers matters more than a counter when the counter is a
+ * guess: the user can see that 037 is taken even when the suggestion says 38.
+ */
+export async function getNumberContext(
+  seriesId: string,
+): Promise<{ suggestion: number | null; recent: string[]; example: string | null }> {
+  await requireUser();
+
+  const [series, recent] = await Promise.all([
+    db
+      .select({
+        nextNumber: documentSeries.nextNumber,
+        format: documentSeries.format,
+      })
+      .from(documentSeries)
+      .where(eq(documentSeries.id, seriesId))
+      .limit(1),
+    db
+      .select({ number: documents.number })
+      .from(documents)
+      .where(and(eq(documents.seriesId, seriesId), sql`${documents.number} IS NOT NULL`))
+      .orderBy(desc(documents.issuedAt), desc(documents.createdAt))
+      .limit(12),
+  ]);
+
+  return {
+    suggestion: series[0]?.nextNumber ?? null,
+    recent: recent.map((r) => String(r.number)),
+    example: series[0]?.format ?? null,
+  };
+}
+
+/**
+ * Issue a DRAFT with a number the user typed, and lock it.
+ *
+ * The number is entered by hand rather than generated. The office does not yet
+ * know what every segment means, and a system that guesses a number produces a
+ * wrong one that has already been printed by the time anyone notices. The
+ * series carries a suggestion to pre-fill the box, and the last issued numbers
+ * are shown beside it, but the person issuing decides.
+ *
+ * Uniqueness is enforced twice. The check inside the transaction gives a
+ * readable message; the unique index on (series_id, number) is what actually
+ * guarantees it, which is what catches two people issuing the same number at
+ * the same moment - neither sees the other's row until commit.
  */
 export async function issueDocument(
   id: string,
+  number: string,
 ): Promise<{ success: boolean; number?: string; error?: string }> {
   const user = await requireUser();
+
+  const clean = number.trim();
+  if (!clean) return { success: false, error: 'Nomor dokumen wajib diisi' };
+  if (clean.length > 120) return { success: false, error: 'Nomor terlalu panjang' };
 
   try {
     return await db.transaction(async (tx) => {
       const rows = await tx
         .select({
           doc: documents,
-          format: documentSeries.format,
-          nextNumber: documentSeries.nextNumber,
           docType: documentSeries.docType,
+          suggestion: documentSeries.nextNumber,
         })
         .from(documents)
         .innerJoin(documentSeries, eq(documentSeries.id, documents.seriesId))
         .where(eq(documents.id, id))
-        .limit(1)
-        // FOR UPDATE on the series row: the second issuing transaction blocks
-        // here until the first commits, then reads the number the first one
-        // left behind. Without it both would read the same value.
-        .for('update');
+        .limit(1);
 
       const r = rows[0];
       if (!r) return { success: false, error: 'Dokumen tidak ditemukan' };
@@ -529,27 +536,34 @@ export async function issueDocument(
         return { success: false, error: 'Dokumen ini sudah punya nomor' };
       }
 
-      const seq = r.nextNumber;
-      const shortType = r.docType === 'QUOTATION' ? 'QUO' : 'INV';
-      const number = formatNumber(r.format, {
-        seq,
-        type: shortType,
-        segment: r.doc.numberSegment,
-        issueDate: r.doc.issueDate
-          ? new Date(r.doc.issueDate).toISOString().slice(0, 10)
-          : null,
-      });
+      // Readable duplicate check. The index below is the real guarantee; this
+      // one exists so the person gets told which number is taken instead of a
+      // generic constraint error.
+      const clash = await tx
+        .select({ n: documents.number, client: documents.clientName })
+        .from(documents)
+        .where(
+          and(
+            eq(documents.seriesId, r.doc.seriesId),
+            sql`upper(trim(${documents.number})) = upper(${clean})`,
+          ),
+        )
+        .limit(1);
 
-      await tx
-        .update(documentSeries)
-        .set({ nextNumber: seq + 1, updatedAt: new Date() })
-        .where(eq(documentSeries.id, r.doc.seriesId));
+      if (clash[0]) {
+        return {
+          success: false,
+          error:
+            `Nomor ${clean} sudah dipakai untuk ${clash[0].client}. ` +
+            'Coba nomor lain, atau batalkan dokumen lama kalau itu yang salah.',
+        };
+      }
 
       await tx
         .update(documents)
         .set({
           status: 'ISSUED',
-          number,
+          number: clean,
           issuedAt: new Date(),
           updatedAt: new Date(),
           updatedBy: user.id,
@@ -557,25 +571,35 @@ export async function issueDocument(
         })
         .where(eq(documents.id, id));
 
+      // Move the suggestion past whatever was just used, when the number looks
+      // sequential. Best-effort: the office may skip numbers, and a suggestion
+      // that lags is harmless because the number is typed anyway.
+      if (r.suggestion !== null) {
+        const m = /(\d+)/.exec(clean);
+        if (m && Number(m[1]) >= r.suggestion) {
+          await tx
+            .update(documentSeries)
+            .set({ nextNumber: Number(m[1]) + 1, updatedAt: new Date() })
+            .where(eq(documentSeries.id, r.doc.seriesId));
+        }
+      }
+
       await audit({
         action: 'document.issue',
         userId: user.id,
         userName: user.name,
         targetId: id,
-        details: `${r.docType} ${number} untuk ${r.doc.clientName}`,
+        details: `${r.docType} ${clean} untuk ${r.doc.clientName}`,
       });
 
-      return { success: true, number };
+      return { success: true, number: clean };
     });
   } catch (error) {
-    // The unique index on (series_id, number) is the backstop if two
-    // transactions somehow reach the same value.
     const message = error instanceof Error ? error.message : String(error);
     if (message.includes('documents_series_number_key')) {
       return {
         success: false,
-        error:
-          'Nomor ini sudah dipakai dokumen lain. Coba terbitkan ulang.',
+        error: 'Nomor ini baru saja dipakai dokumen lain. Coba nomor lain.',
       };
     }
     console.error('[document] issue failed', error);
@@ -665,12 +689,14 @@ export async function deleteDocument(
 
 const seriesSchema = z.object({
   label: z.string().max(200).nullish(),
-  format: z.string().trim().min(1).max(200),
-  nextNumber: z.coerce.number().int().min(1, 'Nomor urut minimal 1'),
+  /** House style, shown as a hint. Never used to build a number. */
+  format: z.string().trim().max(200).nullish(),
+  /** Suggestion pre-filled in the issue dialog. Nullable - none is fine. */
+  nextNumber: z.coerce.number().int().min(1).nullish(),
   isActive: z.coerce.boolean(),
 });
 
-/** Edit a series' format and counter. */
+/** Edit a series' hint text and suggestion. */
 export async function updateDocumentSeries(
   id: string,
   input: z.infer<typeof seriesSchema>,
@@ -685,34 +711,37 @@ export async function updateDocumentSeries(
   const rows = await db.select().from(documentSeries).where(eq(documentSeries.id, id)).limit(1);
   if (!rows[0]) return { success: false, error: 'Seri tidak ditemukan' };
 
-  // Moving the counter backwards below a number already issued would hand the
-  // same number to a second document, which the unique index would catch - but
-  // only after the office has already sent it to a client.
-  const issued = await db
-    .select({ n: documents.number })
-    .from(documents)
-    .where(eq(documents.seriesId, id));
+  // A suggestion that sits below a number already issued would keep pre-filling
+  // a number the office cannot use. It is only a hint, so the fix is to say so
+  // rather than refuse the save - the number itself is typed and the unique
+  // index is what actually prevents a duplicate.
+  if (data.nextNumber !== null && data.nextNumber !== undefined) {
+    const issued = await db
+      .select({ n: documents.number })
+      .from(documents)
+      .where(eq(documents.seriesId, id));
 
-  const highest = issued.reduce((max, r) => {
-    const m = /(\d+)/.exec(r.n ?? '');
-    return m ? Math.max(max, Number(m[1])) : max;
-  }, 0);
+    const highest = issued.reduce((max, r) => {
+      const m = /(\d+)/.exec(r.n ?? '');
+      return m ? Math.max(max, Number(m[1])) : max;
+    }, 0);
 
-  if (data.nextNumber <= highest) {
-    return {
-      success: false,
-      error:
-        `Nomor urut harus lebih besar dari ${highest}. ` +
-        `Nomor ${highest} sudah dipakai untuk dokumen yang terbit.`,
-    };
+    if (data.nextNumber <= highest) {
+      return {
+        success: false,
+        error:
+          `Saran nomor harus lebih besar dari ${highest}. ` +
+          `Nomor ${highest} sudah dipakai untuk dokumen yang terbit.`,
+      };
+    }
   }
 
   await db
     .update(documentSeries)
     .set({
       label: data.label ?? null,
-      format: data.format,
-      nextNumber: data.nextNumber,
+      format: data.format ?? null,
+      nextNumber: data.nextNumber ?? null,
       isActive: data.isActive,
       updatedAt: new Date(),
     })
@@ -733,8 +762,8 @@ export async function updateDocumentSeries(
 export async function createDocumentSeries(input: {
   company: string;
   docType: string;
-  format: string;
-  nextNumber: number;
+  format?: string | null;
+  nextNumber?: number | null;
   label?: string | null;
 }): Promise<{ success: boolean; id?: string; error?: string }> {
   await requireLord();
@@ -745,8 +774,8 @@ export async function createDocumentSeries(input: {
       id,
       company: input.company as never,
       docType: input.docType as never,
-      format: input.format,
-      nextNumber: input.nextNumber,
+      format: input.format ?? null,
+      nextNumber: input.nextNumber ?? null,
       label: input.label ?? null,
     });
     return { success: true, id };
