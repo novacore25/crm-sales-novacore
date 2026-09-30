@@ -4,16 +4,23 @@
 -- all - the picker offered Quotation TNT, Invoice TNT and Quotation HYPE, and
 -- nothing else.
 --
--- The template is not the obvious one. The invoice's own printed number reads
+-- The template is not the obvious one, and it is now {type} rather than a
+-- literal.
 --
---   04/QUO-HYPE
+-- This originally shipped the prefix as a literal QUO, because the office's
+-- HYPE invoice was printed as 04/QUO-HYPE - an invoice carrying the quotation
+-- prefix. That was reproduced faithfully, on the reasoning that a number already
+-- on paper the client holds should not be quietly changed.
 --
--- QUO, not INV. It is an invoice and the prefix still says quotation. That is
--- almost certainly a leftover in whatever they build these in, but it is printed
--- on paper the client holds, so it is reproduced rather than quietly corrected.
--- The prefix is therefore a literal here and NOT the {type} placeholder, which
--- would resolve INVOICE to INV and produce a number that has never existed.
--- Change it to {type} if the office decides to start printing INV.
+-- The office has since said the prefix should follow the document type: an
+-- invoice is INV, a quotation is QUO. That is right, and it is what the TNT
+-- series has always done. The prefix is now the {type} placeholder, which
+-- resolves INVOICE to INV.
+--
+-- The UPDATE below repairs the row if 0006 was already applied with the old
+-- literal, because the INSERT's ON CONFLICT DO NOTHING would leave it alone.
+-- Guarded on the exact old value so it cannot touch a row the office has since
+-- edited by hand.
 --
 -- Two digits, not three. The HYPE quotation is 003/QUO-HYPE and the invoice is
 -- 04/QUO-HYPE, which is the same 3-then-2 split the TNT series already uses
@@ -34,5 +41,9 @@
 
 INSERT INTO "document_series" ("id", "company", "doc_type", "format", "next_number", "label")
 VALUES
-  ('hype-invoice', 'HYPE', 'INVOICE', '{seq:2}/QUO-{company}', 5, 'Invoice - HYPE')
+  ('hype-invoice', 'HYPE', 'INVOICE', '{seq:2}/{type}-{company}', 5, 'Invoice - HYPE')
 ON CONFLICT DO NOTHING;
+
+UPDATE "document_series" SET "format" = '{seq:2}/{type}-{company}'
+  WHERE "id" = 'hype-invoice' AND "format" = '{seq:2}/QUO-{company}';
+

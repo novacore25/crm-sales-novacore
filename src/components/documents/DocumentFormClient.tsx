@@ -149,6 +149,8 @@ export default function DocumentFormClient({ seed }: { seed?: DocumentFormSeed }
   }, []);
 
   const current = series.find((s) => s.id === seriesId);
+  /** A quotation is an offer: no company bank account. An invoice is payment. */
+  const isInvoiceSeries = current?.docType === 'INVOICE';
 
   /**
    * The number that gets saved.
@@ -684,6 +686,18 @@ export default function DocumentFormClient({ seed }: { seed?: DocumentFormSeed }
               Rekening &amp; Penandatangan
             </h2>
 
+            {/*
+             * A quotation is an offer and carries no company bank account; an
+             * invoice is the request for payment and does. Both the office's own
+             * documents and the template follow that, so the fields are hidden on
+             * a quotation rather than left there to be filled in and then not
+             * printed.
+             *
+             * The values are kept in state rather than cleared, so switching the
+             * series back to an invoice brings the account straight back.
+             */}
+            {isInvoiceSeries ? (
+              <>
             <p className="text-[10px] text-slate-400 leading-relaxed">
               Daftar di bawah milik{' '}
               <span className="font-black text-slate-600">{current?.company}</span> saja.
@@ -737,6 +751,14 @@ export default function DocumentFormClient({ seed }: { seed?: DocumentFormSeed }
                 <input type="text" value={bankBranch} onChange={(e) => setBankBranch(e.target.value)} placeholder="KARAWACI" className="mt-1 w-full px-3 py-2 border border-slate-200 rounded-lg text-xs font-bold text-slate-700 outline-none focus:ring-2 focus:ring-indigo-500" />
               </label>
             </div>
+              </>
+            ) : (
+              <p className="text-[10px] text-slate-400 leading-relaxed">
+                Quotation adalah penawaran, jadi tidak ada rekening perusahaan di
+                dalamnya. Kolom rekening muncul kalau jenis dokumen diganti ke
+                Invoice.
+              </p>
+            )}
 
             <div className="grid grid-cols-2 gap-3">
               <label className="block">

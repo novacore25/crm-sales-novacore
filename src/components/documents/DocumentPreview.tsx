@@ -363,6 +363,17 @@ function TntTemplate({ doc }: { doc: PreviewDoc }) {
   // QUOTATION, the other INVOICE. Picking the wrong one would print a document
   // headed INVOICE that the archive lists as a quotation.
   const tntArt = doc.docType === 'INVOICE' ? '/documents/tnt-invoice.svg' : '/documents/tnt-quotation.svg';
+  /*
+   * A quotation is an offer, so it carries no company bank account. An invoice
+   * is the request for payment, so it does. Both the office's own documents and
+   * this form follow that: the quotation PDFs have no bank block at all and the
+   * invoice PDFs do.
+   *
+   * The bank block below used to print whenever any account detail happened to
+   * be filled in, so a quotation with a bank account selected printed one. HYPE
+   * already gated this correctly; TNT did not.
+   */
+  const isInvoice = doc.docType === 'INVOICE';
 
   return (
     <Sheet
@@ -494,7 +505,7 @@ function TntTemplate({ doc }: { doc: PreviewDoc }) {
 
           {/* Bank details sit under the totals on the right, closed off with a
               gold rule - the same device the footer uses. */}
-          {(doc.bankName || doc.bankAccountName || doc.bankAccountNumber) && (
+          {isInvoice && (doc.bankName || doc.bankAccountName || doc.bankAccountNumber) && (
             <div className="mt-2.5 pl-3 space-y-0.5" style={{ borderBottom: '1.5px solid #E8B923' }}>
               {doc.bankName && (
                 <div className="flex gap-1.5">

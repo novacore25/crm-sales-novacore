@@ -23,11 +23,12 @@ const TNT_QUO = '{seq:3}/{type}-{company}/{code}/{roman}/{yy}';
 const TNT_INV = '{seq:2}/{type}-{company}/{code}/{roman}/{yy}';
 const HYPE_QUO = '{seq:3}/{type}-{company}';
 /*
- * QUO is a literal, not {type}. The office's HYPE invoice really is printed as
- * 04/QUO-HYPE - an invoice carrying the quotation prefix. Using {type} here would
- * produce INV-HYPE, a number that has never existed on any of their paper.
+ * HYPE's prefix follows the document type, like TNT's does. The office's oldest
+ * HYPE invoice was printed as 04/QUO-HYPE - an invoice carrying the quotation
+ * prefix - and the first version of this template reproduced that literally.
+ * The office decided the prefix should follow the type, so this uses {type}.
  */
-const HYPE_INV = '{seq:2}/QUO-{company}';
+const HYPE_INV = '{seq:2}/{type}-{company}';
 
 console.log('\n--- reproducing numbers taken from the office PDFs ---');
 
@@ -62,15 +63,22 @@ check(
   '003/QUO-HYPE',
 );
 
-// An invoice, carrying the QUOTATION prefix, because that is what the office
-// prints. Read off 04/QUO-HYPE on the Northwood Coffee invoice.
+// An invoice, read off 04/QUO-HYPE on the Northwood Coffee invoice but with the
+// prefix corrected to follow the document type, the way TNT already does.
 check(
-  'invoice HYPE 04/QUO-HYPE - prefix stays QUO on an invoice',
+  'invoice HYPE 04/INV-HYPE - prefix follows the document type',
   composeNumber({
     format: HYPE_INV, seq: 4, code: null, docType: 'INVOICE',
     company: 'HYPE', date: '2026-06-15',
   }).value,
-  '04/QUO-HYPE',
+  '04/INV-HYPE',
+);
+check(
+  'quotation HYPE keeps QUO, so the two differ only by type and width',
+  composeNumber({
+    format: HYPE_QUO, seq: 3, docType: 'QUOTATION', company: 'HYPE', date: '2026-06-15',
+  }).value,
+  '003/QUO-HYPE',
 );
 check(
   'invoice HYPE asks for a sequence only, no code',
@@ -78,14 +86,6 @@ check(
     format: HYPE_INV, seq: 4, docType: 'INVOICE', company: 'HYPE', date: '2026-06-15',
   }).needs,
   ['seq'],
-);
-check(
-  'the {type} placeholder would have said INV, which is why it is not used',
-  composeNumber({
-    format: '{seq:2}/{type}-{company}', seq: 4, docType: 'INVOICE', company: 'HYPE',
-    date: '2026-06-15',
-  }).value,
-  '04/INV-HYPE',
 );
 check('HYPE invoice sequence pads to two digits', padSequence(4, 2), '04');
 check('HYPE invoice sequence past 99 does not truncate', padSequence(104, 2), '104');
