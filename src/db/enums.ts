@@ -44,8 +44,9 @@ export const productEnum = pgEnum('product', ['MCN', 'TNT', 'HYPE']);
 /**
  * Document lifecycle.
  *
- * DRAFT   - still being typed. No number is assigned, so abandoning one costs
- *           nothing. Fully editable.
+ * DRAFT   - still being typed. Fully editable, and it may already hold a number:
+ *           the office types the number first, then instantiates the document, so
+ *           forbidding a number on a draft broke their real order of work.
  * ISSUED  - a real document. The number is assigned and the record is locked,
  *           because a number that has left the office cannot change meaning.
  * CANCELLED - the number is spent and is never reused, even though no document

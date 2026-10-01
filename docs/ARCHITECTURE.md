@@ -1,211 +1,151 @@
-# Architecture
+# Arsitektur
 
-## Stack
+Struktur aplikasi dan database. Untuk alasannya, baca `docs/DECISIONS.md`.
 
-| Layer | Choice | Notes |
-|---|---|---|
-| Framework | Next.js 16.3.1, App Router | React 19.2.8 |
-| Language | TypeScript 5 | `strict: true`, and `ignoreBuildErrors` is now **off** |
-| Database | PostgreSQL 17 | Self-hosted on Coolify, not exposed to the internet |
-| ORM | Drizzle ORM | Type-safe SQL, no runtime query builder |
-| Auth | Auth.js (NextAuth v5) + Google OAuth | Database-backed sessions |
-| Styling | Tailwind CSS v4 | |
-| Deployment | Docker → Coolify | Multi-stage, `output: 'standalone'` |
-| Analytics | Postgres `next-auth`, `papaparse`, `sonner`, `zustand`, `motion` | |
+---
 
-## What changed, and why
+## Bentuk umum
 
-The previous version was **Next.js on Vercel with Supabase** for both database
-and authentication. The move to a single VPS removed two platform services at
-once, and the replacements are not drop-in.
-
-### Supabase PostgREST → Drizzle
-
-Every client component talked to the database **directly from the browser**,
-using the Supabase anon key and PostgREST's query syntax. That meant the
-database schema was effectively part of the client bundle, and the UI was
-coupled to a REST dialect:
-
-- Embedded resources — `select('*, funnelHistory:funnel_history(*)')`
-- FK-name hints — `users!tasks_assigned_to_fkey(name)`, which depended on
-  Postgres' auto-generated constraint name
-- RPCs — `supabase.rpc('get_dashboard_stats', {...})`
-- Count headers — `select('*', { count: 'exact', head: true })`
-
-All data access now goes through **server actions**. Client components receive
-data as props and call actions on demand. The consequences:
-
-- The database is only reachable from the server. The anon key is gone entirely.
-- PostgREST constructs become explicit `leftJoin`s, two-query `inArray` fetches,
-  or `sql` templates.
-- Every write is in one place with one validation path, instead of being
-  scattered across a dozen components.
-
-### Supabase RLS → server-side permission guards
-
-This is the most important change, and it is not cosmetic.
-
-Under Supabase, **RLS was the only real authorization boundary**. Policies in
-`fix_rls.sql` decided whether a signed-in staff member could read or write a
-row. The `user.role === 'lord'` checks in the components were JSX render
-conditions — they hid buttons, they did not stop requests.
-
-Those policies were also unreliable in practice: migration
-`00000000000002_recreate_schema_text.sql` ran `ALTER TABLE … DISABLE ROW LEVEL
-SECURITY` on eleven tables and never re-enabled them, and `fix_rls.sql` created
-policies without ever running `ENABLE ROW LEVEL SECURITY`. Policy statements
-without RLS active have no effect.
-
-With a direct Postgres connection there is no policy engine at all. Authorization
-is now explicit and server-side:
-
-- [`src/lib/permissions.ts`](../src/lib/permissions.ts) — the role matrix
-- [`src/lib/auth.ts`](../src/lib/auth.ts) — `requireUser`, `requirePermission`,
-  `requireLord`, `requireLordOrAdmin`
-- Every server action calls a guard before touching data
-
-```ts
-export async function permanentlyDeleteLeads(ids: string[]) {
-  const user = await requireLord();   // throws unless role === 'lord'
-  // ... never reads role from the client
-}
-```
-
-Role is always read from the database, never from a request body.
-
-### Supabase Auth → Auth.js
-
-The user-facing flow is unchanged: press **Lanjutkan dengan Google**, land back
-on the CRM. The plumbing underneath is new:
-
-| Before | After |
-|---|---|
-| `supabase.auth.signInWithOAuth({ provider: 'google' })` | `signIn('google')` server action |
-| `/auth/callback` exchanging a `?code=` for a cookie | Auth.js `/api/auth/callback/google` |
-| `supabase.auth.getUser()` on every request | `auth()` reads the session locally |
-| `supabase.auth.signOut()` from the client | `signOut()` server action |
-| `auth.users` table | `accounts` + `sessions` in our own Postgres |
-
-Auto-registration of unknown Google accounts as `pending` now happens in the
-`signIn` callback, in one place. The old app did it in the root layout with an
-`INSERT` on every render, while the pages used an `UPSERT` for the same job —
-so two concurrent first logins could collide on the unique email constraint and
-throw inside the root layout.
-
-Sessions are stored in the database rather than signed into a JWT, so an admin
-promoting a user takes effect on that user's next request instead of persisting
-until the token expired.
-
-## Request flow
-
-```mermaid
-sequenceDiagram
-    participant U as Browser
-    participant M as Middleware
-    participant P as Page (RSC)
-    participant A as Server Action
-    participant D as Drizzle → PostgreSQL
-
-    U->>M: GET /leads
-    M->>M: auth() — read session cookie
-    alt no session
-        M-->>U: 302 → /login
-    else pending role
-        M-->>U: 302 → /pending
-    end
-    M->>P: pass through
-    P->>A: requireUser()
-    A->>D: SELECT users WHERE email = ?
-    D-->>A: role
-    P->>A: getLeadsPage({ page, pageSize })
-    A->>D: page of leads + COUNT
-    A->>D: funnel_history WHERE lead_id IN (...)
-    A->>D: lead_notes    WHERE lead_id IN (...)
-    D-->>A: rows
-    P-->>U: HTML + serialised props
-    U->>A: user clicks "Move to trash"
-    A->>A: requirePermission('canDeleteLeads')
-    A->>D: UPDATE leads SET is_deleted = true ...
-    A->>D: INSERT global_audit_logs
-    A-->>U: { success: true }
-```
-
-Note the direction change: the browser no longer holds a database credential, so
-every read and write crosses a server boundary that can authorise it.
-
-## Data access patterns
-
-**Pagination.** The leads list previously loaded all ~6,000 rows into the
-browser with a `while (hasMore)` loop, transferring 3–5 MB of JSON per visit —
-and the range query had no `ORDER BY`, so rows could be skipped or duplicated
-whenever the table changed mid-scan. Now a page of leads is resolved first, then
-history and notes are fetched in two batched queries keyed by that page's ids.
-Row count is stable and the join fan-out is bounded by page size.
-
-**Aggregation.** `getDashboardStats`, `getIndividualContributions` and
-`getGhostedLeads` are single SQL statements. The dashboard previously ran the
-same aggregate in Postgres *and* recomputed it in a `useMemo` inside the client
-component; the two implementations drifted. There is now one.
-
-**Transactions.** Multi-table writes are wrapped in `db.transaction()`. The
-status update path — lead row, funnel entry, audit note — used to be three
-separate browser requests, so a failure between them left a lead claiming a
-stage it had no history for.
-
-**Batch, not N+1.** The per-row `SELECT`/`DELETE` loops for `oi_forecasts` are
-gone; `leads.id` has `ON DELETE CASCADE`, so deleting a lead removes its
-forecasts in one statement.
-
-## Directory layout
+Next.js 16 App Router, TypeScript, PostgreSQL, Drizzle ORM, Auth.js v5.
 
 ```
 src/
-├── auth.ts                     Auth.js config (providers, callbacks, session)
-├── middleware.ts               Route protection + role gates
-├── types.ts                    DTOs shared between server and client
-├── db/
-│   ├── schema.ts               Domain tables (Drizzle)
-│   ├── auth-schema.ts          Auth.js tables
-│   ├── enums.ts                Postgres enums
-│   └── index.ts                Connection pool + `db` instance
-├── lib/
-│   ├── auth.ts                 requireUser / requirePermission / requireLord
-│   ├── auth-users.ts           User lookup and registration
-│   ├── permissions.ts          Role → permission matrix
-│   └── utils.ts                `cn()` Tailwind helper
-├── app/
-│   ├── (app)/                  Authenticated shell
-│   │   ├── layout.tsx          Reads the user, renders PendingScreen or AppLayout
-│   │   ├── page.tsx            Dashboard / leads pipeline
-│   │   ├── leads/              Leads database
-│   │   ├── lead/[id]/          Lead detail
-│   │   ├── oi_forecast/        Operational income
-│   │   ├── tasks/              Task management
-│   │   ├── admin/{users,targets,approvals}/
-│   │   └── permissions/
-│   ├── actions/                Server actions — the only data-access layer
-│   ├── api/auth/[...nextauth]/ Auth.js route handler
-│   ├── login/                  Google sign-in
-│   ├── pending/                Awaiting-approval screen
-│   └── layout.tsx              Minimal: html/body only
-├── components/                 Client components
-└── hooks/useCategories.ts
+  proxy.ts              rewrite /auth ke route ourselves (Node runtime untuk pg)
+  db/
+    schema.ts           19 tabel, satu file
+    enums.ts            11 enum Postgres
+    index.ts            koneksi + instance drizzle
+  lib/                  helper murni, tanpa DB, tanpa React
+    auth.ts             requireUser / requirePermission / requireLord
+    document-number.ts  parseTemplate / composeNumber / extractCode
+  app/
+    (app)/              halaman setelah login
+    actions/            server action, semua write lewat sini
+  components/           komponen client
+drizzle/                migrasi SQL
+public/documents/       artwork kop: tnt-quotation.svg, tnt-invoice.svg,
+                        hype-header.svg, logo-tnt-mark.png
+docs/                   audit dan catatan keputusan
+scripts/                alat bantu, bukan bagian app
 ```
 
-The `(app)` route group is why `/login` and `/pending` render without the
-sidebar shell, without each page needing its own guard.
+`src/lib/` tidak boleh mengimpor DB atau React. Itu yang bikin
+`document-number.ts` bisa diuji tanpa database, dan itu alasannya
+`scripts/check-number-composition.ts` bisa jalan sendiri.
 
-## Environment variables
+---
 
-See [`.env.example`](../.env.example).
+## Otorisasi
 
-| Variable | Purpose |
+RLS sudah tidak dipakai. Tiga fungsi di `src/lib/auth.ts`:
+
+| Fungsi | Untuk siapa |
 |---|---|
-| `DATABASE_URL` | **Internal** Coolify URL for `crm-sales-db`. Never the external one — the database is not internet-exposed. |
-| `AUTH_SECRET` | Signs and encrypts session cookies. Required in production. |
-| `AUTH_TRUST_HOST` | `true` behind Coolify's proxy. |
-| `AUTH_URL` | Public origin, used to build the OAuth redirect URI. |
-| `AUTH_GOOGLE_ID` / `AUTH_GOOGLE_SECRET` | Google OAuth client. |
+| `requireUser` | siapa pun yang sudah login |
+| `requirePermission(x)` | punya izin tertentu |
+| `requireLord` | hanya lord. Melempar, bukan mengembalikan null |
 
-None of these belong in the repository. Set them as environment variables on
-the Coolify application resource.
+Pemeriksaan di server, bukan di UI. Tombol yang disembunyikan itu kenyamanan,
+bukan kontrol — karena itu `deleteDocument` memanggil `requireLord` dan bukan
+sekarang disembunyikan.
+
+---
+
+## Database
+
+19 tabel:
+
+| Kelompok | Tabel |
+|---|---|
+| User | `users`, `role_permissions` |
+| Leads | `leads`, `lead_notes`, `funnel_history`, `edit_requests`, `tasks` |
+| Target | `global_targets`, `individual_targets` |
+| Audit | `global_audit_logs` |
+| OI | `oi_forecasts`, `oi_targets` |
+| Dokumen | `documents`, `document_items`, `document_series`, `document_number_codes`, `document_bank_accounts`, `document_signatories` |
+| Lain | `app_settings` |
+
+Semua primary key TEXT, diwarisi dari Firestore. Pengecualian: `users.auth_id`
+tetap uuid karena itu tipe dari Auth.js.
+
+`product` dan `document_company` itu dua hal berbeda. MCN adalah produk yang
+dijual lewat kop TNT, jadi "logo mana yang atas" dan "produk apa ini" pertanyaan
+yang berbeda. Perusahaan memetakan ke template; produk tidak.
+
+---
+
+## Modul Documents
+
+### Tabel
+
+- `document_series` — satu baris per (perusahaan, jenis dokumen). Menyimpan
+  `format` sebagai template dan `next_number` sebagai saran.
+- `documents` — dokumennya. Nomor ada di sini, bukan di item.
+- `document_items` — baris tabel di dalam dokumen.
+- `document_number_codes`, `document_bank_accounts`, `document_signatories` —
+  daftar yang belajar sendiri. Nilai baru yang diketik tersimpan supaya muncul
+  di dropdown berikutnya.
+
+### Nomor
+
+`format` di `document_series` adalah template sungguhan:
+
+```
+{seq:3}/{type}-{company}/{code}/{roman}/{yy}
+```
+
+Perakitnya di `src/lib/document-number.ts`. Hanya `{seq}` dan `{code}` diisi
+orang; `{roman}` dan `{yy}` dibaca dari `issueDate`. Ganti tanggal, nomornya
+ikut berubah.
+
+Jaminan keunikan bukan dari `next_number`, tapi dari unique index
+`(series_id, number)`. Postgres memperlakukan NULL berbeda-bedanya, jadi
+draft tanpa nomor tidak bentrok sama sekali.
+
+### Lifecycle
+
+| Status | Arti |
+|---|---|
+| DRAFT | sedang diketik. Boleh diubah, boleh sudah punya nomor |
+| ISSUED | nomor sudah keluar. Kunci, tidak bisa diubah |
+| CANCELLED | nomor sudah terpakai dan tidak akan dipakai ulang |
+| REVISION | pengganti ISSUED, nomor sama dengan akhiran /R1 |
+
+`updateDocument` menolak apa pun yang bukan DRAFT. Revisi bukan edit: dokumen
+lama tetap utuh di arsip, dan dokumen baru menunjuk ke yang lama.
+
+---
+
+## Printing
+
+Semua dokumen keluar lewat Save as PDF dari Chrome. Tidak ada PDF generator di
+server.
+
+`@page { size: A4; margin: 0 }`, sheet 210 x 297mm. Kop dan kakifoil di
+background image, di-crop oleh tinggi elemen. `Letterhead` sudah membawa
+`margin: '0 -14mm'` sendiri — jangan juga diberi di pemanggil, karena akan
+terpakai dua kali dan artwork jadi bergeser.
+
+Reproduksi bug yang cuma muncul di PDF:
+
+```
+render -> Chromium emulate_media('print')
+       -> page.pdf(prefer_css_page_size=True, print_background=True)
+       -> baca hasilnya dengan pymupdf
+```
+
+Bukan screenshot browser.
+
+---
+
+## Verifikasi
+
+| Untuk | Cara |
+|---|---|
+| SQL | cetak `query.toSQL()`, baca params-nya |
+| Layout cetak | render di Chromium, pdf, ukur hasilnya |
+| Migrasi | BEGIN lalu ROLLBACK dulu, lalu bandingkan isinya |
+| Perhitungan | pure function plus assertion script |
+
+`tsc` dan `next build` tidak menghitung sebagai verifikasi untuk SQL, migrasi,
+maupun layout. Lihat `AGENTS.md` Aturan 1.
