@@ -66,8 +66,32 @@ export function PrintSheet({ doc }: { doc: PreviewDoc }) {
             Print / Save as PDF
           </button>
           <span className="text-[11px] text-slate-500 font-bold">
-            Destination pilih <strong>&quot;Save as PDF&quot;</strong> &middot; paper A4 &middot;
-            margins <strong>None</strong> &middot; aktifkan <strong>Background graphics</strong>
+            Chrome/Edge: Destination <strong>&quot;Save as PDF&quot;</strong> &middot;
+            Firefox: <strong>&quot;Save to PDF&quot;</strong> &middot;
+            Safari: PDF <strong>&quot;Save as PDF&quot;</strong>
+          </span>
+        </div>
+
+        {/*
+          The header and footer are print:fixed so they repeat on every sheet,
+          which is what they do on the office paper. A print dialog that ignores
+          them loses the letterhead entirely, so the warning has to be unmissable
+          - but the wording of the setting differs per browser, and telling
+          someone to look for "Background graphics" in Safari or "Print
+          backgrounds" in Firefox wastes their time.
+
+          Paper size and margins are set in CSS, not here. All three engines were
+          measured at 793.7 x 1122.5px, which is A4 exactly, on both the TNT and
+          the HYPE sheet, with the content fitting one page in every one.
+        */}
+        <div className="print-hide mb-4 rounded-xl border border-amber-300 bg-amber-50 px-4 py-2.5 text-[11px] font-bold leading-relaxed text-amber-900">
+          <strong>Wajib aktifkan cetak latar.</strong> Kalau mati, kop dan kaki
+          halaman tidak tercetak sama sekali &mdash; berkasnya tetap keluar, tapi
+          kosong kepalanya.
+          <span className="font-normal text-amber-800">
+            {' '}Chrome/Edge: centang <strong>Background graphics</strong>.
+            Firefox: centang <strong>Print backgrounds</strong> di Paper Setup.
+            Safari: centang <strong>Print backgrounds</strong>.
           </span>
         </div>
 
