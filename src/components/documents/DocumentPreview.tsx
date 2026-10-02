@@ -475,13 +475,25 @@ function TntTemplate({ doc }: { doc: PreviewDoc }) {
         </tbody>
       </table>
 
-      {/* terms on the left, money on the right. The totals sit on one grey
-          block that starts at the page's midpoint, as on the paper - a stacked
-          list of thin-bordered rows read as a spreadsheet, not a quotation. */}
-      <div className="mt-4 flex gap-5 items-start print:break-inside-avoid">
-        <div className="flex-1 min-w-0 pt-0.5">
-          <Terms text={doc.terms} />
-        </div>
+      {/* Everything below the table travels as one unit.
+
+          Terms, the totals block, the bank details and both signatures are each
+          individually break-inside-avoid, but that is not the same as moving
+          together: the totals could land at the foot of page one with the
+          signatures orphaned onto page two, which is worse than either extreme.
+          Wrapping them means a document that runs long pushes the whole closing
+          section to the second sheet and leaves page one as table only.
+
+          A single-page document is unaffected, which is the case that actually
+          matters - the office's invoices do not run to two pages. */}
+      <div className="print:break-inside-avoid">
+        {/* terms on the left, money on the right. The totals sit on one grey
+            block that starts at the page's midpoint, as on the paper - a stacked
+            list of thin-bordered rows read as a spreadsheet, not a quotation. */}
+        <div className="mt-4 flex gap-5 items-start">
+          <div className="flex-1 min-w-0 pt-0.5">
+            <Terms text={doc.terms} />
+          </div>
 
         <div className="w-1/2 shrink-0 text-[9.5px]">
           <div className="px-2.5 py-1" style={{ background: '#808080' }}>
@@ -551,10 +563,11 @@ function TntTemplate({ doc }: { doc: PreviewDoc }) {
               )}
             </div>
           )}
+          </div>
         </div>
-      </div>
 
-      <Signatures doc={doc} maroon />
+        <Signatures doc={doc} maroon />
+      </div>
     </Sheet>
   );
 }

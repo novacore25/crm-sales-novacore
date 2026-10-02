@@ -97,6 +97,18 @@ dipilih oleh manusia, bukan diam-diam.
 `deleteDocument` memanggil `requireLord`, yang melempar. Menyembunyikan tombol cuma
 kenyamanan, bukan kontrol.
 
+### Blok penutup dokumen adalah satu kesatuan
+
+Ketentuan, blok total, rekening, dan kedua tanda tangan dibungkus satu
+`break-inside-avoid`. Semuanya memang sudah tidak bisa terbelah sendiri-sendiri,
+tapi itu **bukan** hal yang sama dengan berpindah bersama: total bisa mendarat di
+kaki halaman pertama sementara tanda tangan terlantar ke halaman kedua, dan itu
+lebih buruk dari kedua ekstrem.
+
+Kalau dokumen panjang, seluruh penutup pindah ke lembar kedua dan halaman pertama
+cuma berisi tabel. Dokumen satu halaman tidak terpengaruh sama sekali — dan itu
+yang benar-benar dipakai, karena invoice kantor tidak pernah dua halaman.
+
 ### Rekening dan penandatangan disimpan di dokumen, bukan dibaca dari tabel
 
 Kalau tabelnya diubah, dokumen lama akan berubah retroactive. Dokumen lama harus
