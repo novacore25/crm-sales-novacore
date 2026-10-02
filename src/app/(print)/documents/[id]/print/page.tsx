@@ -11,6 +11,9 @@ import { PrintSheet } from './PrintSheet';
  * uses, so the output is sharp and identical to what was approved - and it adds
  * no PDF library, no Chromium in the image, and no memory cost on a VPS that is
  * already tight.
+ *
+ * This route sits in the `(print)` group, not `(app)`, so the sheet is the only
+ * thing in the document. See that layout for what happened when it did not.
  */
 export default async function PrintPage({ params }: { params: Promise<{ id: string }> }) {
   await requireUser();

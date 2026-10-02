@@ -231,6 +231,23 @@ berbeda sebelum, 0,58% sesudah.
 `contoh: 037/...` dengan spasi. Tidak ada error. Tabel tetap ada, format tetap
 salah.
 
+### Harness yang merender komponennya sendiri tidak bisa menemukan bug halaman
+
+Sidebar ikut tercetak ke PDF, dan tidak ada satu pun dari sebelas pemeriksaan
+layout yang menyinggungnya. Alasannya: harness merender `DocumentPreview` secara
+langsung ke HTML, tanpa lewat `AppLayout`. Yang diukur setiap kali adalah
+komponennya - benar, presisi, tidak ada yang salah - tapi **bukan halaman yang
+dibuka orang**.
+
+Harness itu benar untuk apa yang dibuatnya: mengukur tinggi baris, posisi kolom,
+jarak tanda tangan. Ia tidak dapat menangkap apa pun dari luar komponen, dan
+itulah persis kelas bug yang paling mahal.
+
+Pelajaran: bila sebuah bug berasal dari apa yang **melingkupi** kode, harness
+harus memuat struktur itu juga - bukan hanya komponennya. Untuk halaman print,
+buktinya bukan mengukur PDF lagi, tapi membaca hasil build: apakah route print
+masih menarik AppLayout di manifest-nya.
+
 ### Mengukur posisi teks: empat jebakan, semuanya Dietermeasuring
 
 Semuanya muncul saatingan yang ruang tanda tangannya. Semuanya menghasilkan
@@ -267,6 +284,38 @@ yang terjadi — bukan sinyal luapan sama sekali. Yang benar-benar menutup
 pertanyaan: **jumlah halaman di PDF.**
 
 ---
+
+### Route print berada DI LUAR kerangka aplikasi
+
+`/documents/[id]/print` ada di grup `(print)`, bukan `(app)`. Layout grup itu hanya
+mengembalikan children.
+
+Dulu route ini di dalam `(app)`, jadi terbungkus AppLayout: baris flex `h-screen`
+dengan sidebar 250px, kartu user, dan region toast. **Tidak satu pun dari itu
+disembunyikan dari cetak, di browser mana pun**, karena memang tidak pernah ada
+aturan print-nya.
+
+Hasilnya dokumen asli keluar salah. Seorang anggota tim sales menyimpannya dari
+Safari dan lembarnya membawa seluruh navigasi - "CoreDesk", "Executive
+Dashboard", "Leads Database" - dengan quotation terdorong 66mm ke kanan dan
+terpotong, sehingga "Official Quotation" tercetak jadi "ial Quotation" dan
+"Package" jadi "kage".
+
+Memindahkan route keluar dari shell adalah perbaikannya, bukan menyembunyikan
+shell. Menyembunyikannya berarti bergantung pada `print:hidden` yang benar di
+setiap mesin, sementara `h-screen` dan `overflow-hidden`-nya tetap ada di kotak
+cetak - dan Safari punya sejarah panjang berbeda pendapat soal keduanya. Sidebar
+yang tidak dirender adalah hal yang tidak bisa dikoreksi Safari.
+
+Tidak ada yang hilang. Halaman print sudah memanggil `requireUser()`, yang
+mengalihkan tamu belum login ke /login dan akun pending ke /pending.
+
+Yang tidak berubah: URL-nya. Route group bukan bagian dari path.
+
+Bukti perbaikannya, bukan Reading: manifest referensi klien route print di hasil
+build **tidak berisi** AppLayout maupun Sidebar, sementara route Tetangga di
+dalam `(app)` masih memuat keduanya. Kontrolnya penting - tanpanya, pemeriksaan
+yang lolos mungkin lolos karena alasan yang salah.
 
 ## Open
 
