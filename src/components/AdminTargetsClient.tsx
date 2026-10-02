@@ -109,6 +109,29 @@ export default function AdminTargetsClient({
     [monthMilestones],
   );
 
+  /**
+   * Every product listed whether or not a row exists for it.
+   *
+   * Filtering to the products that happen to have rows makes an incomplete month
+   * look complete. October 2026 has no MCN target, and rendering only what exists
+   * showed two products and a total that read as if it covered all three. The
+   * figure was not wrong, but it invited exactly the question it should have
+   * answered: where is MCN?
+   *
+   * So a product with no row is shown as unfilled and left out of the total,
+   * with a count saying how much of the month is actually covered.
+   */
+  const productRows = useMemo(() => {
+    const byProduct = new Map(monthMilestones.map((m) => [m.product, m]));
+    return PRODUCT_ORDER.map((product) => ({
+      product,
+      target: byProduct.get(product) ?? null,
+    }));
+  }, [monthMilestones]);
+
+  const filledCount = productRows.filter((r) => r.target !== null).length;
+  const hasAnyTarget = filledCount > 0;
+
   const activeIndividualTarget = useMemo(() => {
     if (mode === 'global' || !targetUser) return null;
     return individualTargets.find((t) => t.monthYear === selectedMonth && t.userId === targetUser) || null;
@@ -335,7 +358,7 @@ export default function AdminTargetsClient({
                 </div>
               </div>
 
-              {monthMilestones.length === 0 ? (
+              {!hasAnyTarget ? (
                 <div className="py-14 text-center">
                   <p className="text-sm font-black text-slate-700">
                     Belum ada target milestone untuk bulan ini
@@ -356,26 +379,44 @@ export default function AdminTargetsClient({
               ) : (
                 <>
                   <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-6">
-                    {monthMilestones.map((m) => (
+                    {productRows.map(({ product, target }) => (
                       <div
-                        key={m.id}
-                        className="p-5 bg-slate-50 border border-slate-100 rounded-2xl"
+                        key={product}
+                        className={cn(
+                          'p-5 rounded-2xl border',
+                          target
+                            ? 'bg-slate-50 border-slate-100'
+                            : 'bg-amber-50 border-amber-200 border-dashed',
+                        )}
                       >
                         <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">
-                          {m.product}
+                          {product}
                         </span>
-                        <p className="text-lg font-black text-slate-900 mt-1 tabular-nums">
-                          {rupiah(m.targetValue)}
-                        </p>
+                        {target ? (
+                          <p className="text-lg font-black text-slate-900 mt-1 tabular-nums">
+                            {rupiah(target.targetValue)}
+                          </p>
+                        ) : (
+                          <p className="text-sm font-black text-amber-700 mt-1">
+                            Belum diisi
+                          </p>
+                        )}
                       </div>
                     ))}
                   </div>
 
                   <div className="p-6 bg-slate-900 rounded-2xl flex flex-col md:flex-row md:items-center justify-between gap-4">
-                    <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest flex items-center gap-2">
-                      <BarChart3 className="w-4 h-4 text-indigo-400" />
-                      Total target revenue bulan ini
-                    </span>
+                    <div>
+                      <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest flex items-center gap-2">
+                        <BarChart3 className="w-4 h-4 text-indigo-400" />
+                        Total target revenue bulan ini
+                      </span>
+                      {filledCount < productRows.length && (
+                        <p className="text-[10px] font-black text-amber-400/90 uppercase tracking-widest mt-1.5">
+                          Dari {productRows.length} produk, baru {filledCount} terisi
+                        </p>
+                      )}
+                    </div>
                     <span className="text-3xl font-black text-white tabular-nums">
                       {rupiah(milestoneTotal)}
                     </span>
@@ -384,7 +425,8 @@ export default function AdminTargetsClient({
                   <div className="mt-6 pt-6 border-t border-slate-100 flex items-center justify-between gap-4">
                     <p className="text-xs font-bold text-slate-400 leading-relaxed max-w-md">
                       Target ini tidak diubah di halaman ini. Diisi lewat OI
-                      Forecast &rarr; tab Milestones, satu per produk.
+                      Forecast &rarr; tab Milestones, satu per produk. Produk yang
+                      belum diisi tidak ikut dihitung ke total.
                     </p>
                     <a
                       href="/oi_forecast"

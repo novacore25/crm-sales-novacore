@@ -146,12 +146,19 @@ milestone-nya tidak sebesar itu. Jadi sistem tidak boleh:
 
 Milestone adalah target **tim**. Target orang berdiri sendiri.
 
-### Angka total harus bisa ditelusuri
+### Angka total harus bisa ditelusuri, dan yang kosong harus terlihat
 
 Total target global ditampilkan **berserta rinciannya per produk**, bukan angka
 tunggal. Total yang tidak bisa ditelusuri ke keputusan yang menghasilkannya
 tidak akan dipercaya, dan memang begitu: di sinilah asalusul dua angka global
 yang berbeda tanpa ada yang sadar.
+
+Produk yang **belum punya baris** tetap ditampilkan, bertanda "Belum diisi",
+dan **tidak ikut dihitung** ke total. Ini bukan detail tampilan: kalau hanya
+yang ada yang dirender, bulan yang belum lengkap akan terlihat seperti bulan
+yang sudah lengkap. Oktober 2026 tidak punya target MCN, dan tampilannya dulu
+menunjukkan dua produk dengan total yang seolah mencakup ketiganya — angkanya
+tidak salah, tapi persis menimbulkan pertanyaan yang seharusnya sudah terjawab.
 
 ### Rekening dan penandatangan disimpan di dokumen, bukan dibaca dari tabel
 
