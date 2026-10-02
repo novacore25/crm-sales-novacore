@@ -36,7 +36,28 @@ const hype: PreviewDoc = {
 
 const css = `body{margin:0;background:#fff}.sheet{width:210mm;min-height:297mm;box-sizing:border-box;background:#fff}
 @media print{@page{size:A4 portrait;margin:0}}`;
-for (const [slug, doc] of [["p_tnt", tnt], ["p_hype", hype]] as const) {
+/* A TNT invoice with enough rows to fill the sheet. The signature block sits
+   after the table, so a document that fills the page is the case where the
+   fixed footer artwork and the last line of content can collide. Checking only
+   the one-row fixture would never find it. */
+const tntLong: PreviewDoc = {
+  ...tnt,
+  docType: "INVOICE",
+  number: "02/INV-TNT/MCN/VIII/26",
+  bankName: "BCA",
+  bankBranch: "KARAWACI",
+  items: Array.from({ length: 7 }, (_, i) => ({
+    title: `Affiliate Booster ${i + 1}`,
+    description:
+      "500 Creators (VT Concept & Quantity will be adjust by Thick & Thin Media)\n" +
+      "Upload 1.500 Video with Yellow cart\nTier Creator\n  - Mega 1\n  - Macro 15\n" +
+      "Micro 124\nNano 360\nContent and SOW making video by Thick & Thin Media",
+    period: "30 days",
+    price: 60000000 + i * 1000000,
+  })),
+};
+
+for (const [slug, doc] of [["p_tnt", tnt], ["p_hype", hype], ["p_tnt_long", tntLong]] as const) {
   writeFileSync(`C:/Users/Banzilla/AppData/Local/Temp/opencode/docpreview/${slug}.html`,
     `<!doctype html><meta charset="utf-8"><link rel="stylesheet" href="./app.css">
 <style>${css}</style><div class="sheet">${renderToStaticMarkup(DocumentPreview({ doc }))}</div>`);

@@ -168,6 +168,41 @@ berbeda sebelum, 0,58% sesudah.
 `contoh: 037/...` dengan spasi. Tidak ada error. Tabel tetap ada, format tetap
 salah.
 
+### Mengukur posisi teks: empat jebakan, semuanya Dietermeasuring
+
+Semuanya muncul saatingan yang ruang tanda tangannya. Semuanya menghasilkan
+angka yang terlihat yakin dan salah. Semuanya sudah diperbaiki, tapi catatannya
+lebih berharga daripada perbaikannya.
+
+**Stylesheet basi lebih berbahaya daripada stylesheet yang tidak ada.** Harness
+memakai `app.css` hasil build Tailwind dari sesi sebelumnya. Classe
+`mt-[13.3mm]` yang baru tidak ada di sana, jadi margin itu tidak berlaku sama
+sekali, dan hasilnya "jarak 1,9mm" — padahal yang diukur adalah dokumen tanpa
+margin. Tidak ada error, tidak ada peringatan._build ulang dari
+`src/app/globals.css` setiap kali kelas berubah.
+
+**`@import` Google Fonts hilang diam-diam.** CLI Tailwind membuang import Inter
+karena aturan `@import` harus mendahului yang lain. Hasilnya `app.css` menyebut
+Inter di `--font-sans` tapi tidak pernah memuatnya, jadi harness dirender dengan
+font cadangan yang line-height-nya berbeda dari produksi. Setiap jarak dalam
+milimeter jadi tidak berarti. Verifikasi harus `document.fonts.check()` dulu,
+bukan berasumsi.
+
+**Chromium memecah satu baris jadi banyak span.** Dengan Inter termuat,
+`General Manager` jadi `General` + `Manager`, `Thank you,` jadi `Thank` +
+`you,`, `RUBEN ARIANTO` jadi `RUBEN` + `ARIANTO`. Celah antar span kadang
+benar-benar spasi, kadang nol, jadi tidak ada ambang yang bisaandrekonstruksi
+teks. Yang berhasil: buang semua spasi dari kedua sisi sebelum dibandingkan.
+
+**`position: fixed` tidak bisa diukur lewat `getBoundingClientRect`.** Footer
+adalah `print:fixed`, jadi posisinya relatif ke viewport, bukan ke kertas. Dengan
+viewport 1300px dan A4 1122,5px, kaki halaman selalu terbaca "meluar" 177px.
+Anak dari elemen fixed mewarisi offset-nya walau `position: relative`, jadi
+harus ikut dicek sampai ke leluhurnya. Dan `documentElement.scrollHeight` tidak
+pernah bisa lebih kecil dari tinggi viewport, jadi selalu membaca 1300 apa pun
+yang terjadi — bukan sinyal luapan sama sekali. Yang benar-benar menutup
+pertanyaan: **jumlah halaman di PDF.**
+
 ---
 
 ## Open

@@ -378,6 +378,16 @@ function TntTemplate({ doc }: { doc: PreviewDoc }) {
   return (
     <Sheet
       headerSpace="6mm"
+      /* NOTE: this does not stop body content running under the fixed footer
+         artwork on documents longer than one sheet. The footer is position
+         fixed at the page bottom and the artwork is 28.3mm tall, so content
+         must end above 268.7mm on every page. padding-bottom only reserves
+         space after the last line of the whole flow, not at the foot of each
+         page, so raising this value does not move where content ends. Measured:
+         the 7-row fixture still ends at 271.5mm on page 1 whether this is 18mm
+         or 28.3mm. A real fix needs the space taken out of the page box itself,
+         which changes where the artwork is anchored, so it is a decision and
+         not a tweak. p_tnt_long exists to keep it visible. */
       footerSpace="18mm"
       /* The letterhead crop is 46mm tall: logo at 9.2-25.5mm and the title band
          at 33.2-45.9mm. This has to match the Letterhead height below or the
@@ -777,16 +787,34 @@ function Signatures({
 }) {
   const nameColor = maroon ? MAROON_TEXT : 'text-slate-900';
   return (
-    <div className="mt-5 print:break-inside-avoid">
-      {companyLine && <div className="text-[9.5px] font-black mb-8">{companyLine}</div>}
+    /* The gap above the closing line and the gap reserved for the wet signature
+       are both taken from the office's own invoice, not chosen by eye.
+
+       Measured on their PDF: the totals block ends at y 668.1pt and "Thank you,"
+       starts at 711.4pt, which is 15.3mm. "Best Regards" ends at 736.6 and the
+       signatory name starts at 828.8, which is 32.6mm - that gap is where
+       somebody signs in ink, and at 9.1mm there was no room for anything but a
+       name typed on top of the line above it.
+
+       Both margins are fixed millimetres rather than Tailwind steps for the same
+       reason the number templates are: the office prints on the same three
+       widths, so the gaps have to hold at a known size. */
+    <div className="mt-[13.3mm] print:break-inside-avoid">
+      {companyLine && (
+        <div className="text-[9.5px] font-black mb-[32mm]">{companyLine}</div>
+      )}
       <div className="flex justify-between items-end gap-8">
         <div className="text-[9.5px]">
-          {maroon && <div className={`font-black mb-8 ${nameColor}`}>Thank you,<br />Best Regards</div>}
+          {maroon && (
+            <div className={`font-black mb-[32mm] ${nameColor}`}>
+              Thank you,<br />Best Regards
+            </div>
+          )}
           <div className="font-black underline underline-offset-2">{doc.signatoryName || '—'}</div>
           <div className="font-black uppercase text-slate-500 mt-0.5">{doc.signatoryTitle || '—'}</div>
         </div>
         <div className="text-[9.5px] text-right">
-          <div className={`font-black mb-8 ${nameColor}`}>Approve by</div>
+          <div className={`font-black mb-[32mm] ${nameColor}`}>Approve by</div>
           <div className="font-black">{doc.approverName || doc.clientName || '—'}</div>
         </div>
       </div>
