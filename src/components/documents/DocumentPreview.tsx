@@ -423,26 +423,34 @@ function TntTemplate({ doc }: { doc: PreviewDoc }) {
           <tr className="bg-slate-800 text-white print:break-after-avoid">
             <th className="px-2 py-1.5 text-left w-8">No</th>
             <th className="px-2 py-1.5 text-left border-l border-slate-400/40">Description</th>
-            <th className="px-2 py-1.5 text-right w-24 border-l border-slate-400/40">Price</th>
+            <th className="px-2 py-1.5 text-center w-24 border-l border-slate-400/40">Price</th>
             <th className="px-2 py-1.5 text-center w-20 border-l border-slate-400/40">Period</th>
-            <th className="px-2 py-1.5 text-right w-28 border-l border-slate-400/40">Total Price</th>
+            <th className="px-2 py-1.5 text-center w-28 border-l border-slate-400/40">Total Price</th>
           </tr>
         </thead>
         <tbody>
           {doc.items.map((it, i) => (
-            <tr key={i} className="border-b border-slate-300 align-top print:break-inside-avoid">
+            <tr key={i} className="border-b border-slate-300 align-middle print:break-inside-avoid">
               <td className="px-2 py-2.5 text-center font-black">{i + 1}</td>
-              <td className="px-2 py-2.5 border-l border-slate-300">
+              <td className="px-2 py-2.5 border-l border-slate-300 align-middle">
                 <div className="font-black text-[10.5px] mb-0.5">{it.title}</div>
                 <Description text={it.description} />
               </td>
-              <td className="px-2 py-2.5 text-right font-black tabular-nums whitespace-nowrap border-l border-slate-300">
+              {/* Price, period and total sit centred in their columns, both ways.
+                  Measured off the office's own invoice, whose column rules run at
+                  x 312.2 / 399.6 / 460.7 / 555.5: the price glyphs centre on
+                  356.6 against a column centre of 355.9, and the total on 512.7
+                  against 508.1. Vertically the row runs y 343.4 to 560.2, centre
+                  451.8, and the price baseline block centres on 447.2. So the
+                  paper centres them; align-top and text-right both read as a
+                  spreadsheet rather than a quotation. */}
+              <td className="px-2 py-2.5 text-center align-middle font-black tabular-nums whitespace-nowrap border-l border-slate-300">
                 {rupiah(it.price)}
               </td>
-              <td className="px-2 py-2.5 text-center font-bold text-[8.5px] border-l border-slate-300">
+              <td className="px-2 py-2.5 text-center align-middle font-bold text-[8.5px] border-l border-slate-300">
                 {it.period || '-'}
               </td>
-              <td className="px-2 py-2.5 text-right font-black tabular-nums whitespace-nowrap border-l border-slate-300">
+              <td className="px-2 py-2.5 text-center align-middle font-black tabular-nums whitespace-nowrap border-l border-slate-300">
                 {rupiah(it.price)}
               </td>
             </tr>
