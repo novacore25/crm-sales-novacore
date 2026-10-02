@@ -1,6 +1,6 @@
 "use client";
 import { useState, useEffect, useMemo } from 'react';
-import type { GlobalTargetDTO, IndividualTargetDTO, UserProfile, AuditLogDTO } from '@/types';
+import type { IndividualTargetDTO, UserProfile, AuditLogDTO } from '@/types';
 import {
   Target,
   Save,
@@ -14,16 +14,27 @@ import {
   Activity,
   Clock,
   User,
+  Lock,
+  ExternalLink,
 } from 'lucide-react';
-import { setGlobalTarget, setIndividualTarget } from '@/app/actions/target-actions';
+import { setIndividualTarget } from '@/app/actions/target-actions';
 import { useRouter } from 'next/navigation';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
 import { format } from 'date-fns';
 import CurrencyInput from './common/CurrencyInput';
 
+/** Per-product milestone target, the source of the company revenue target. */
+interface MilestoneDTO {
+  id: string;
+  monthYear: string;
+  product: string;
+  targetValue: number;
+  updatedAt: string;
+}
+
 interface AdminTargetsProps {
-  initialGlobalTargets: GlobalTargetDTO[];
+  milestones: MilestoneDTO[];
   initialIndividualTargets: IndividualTargetDTO[];
   users: UserProfile[];
   currentUser: UserProfile;
@@ -31,19 +42,42 @@ interface AdminTargetsProps {
   auditLogs?: AuditLogDTO[];
 }
 
+/** Display order for the product tabs, matching the OI Forecast page. */
+const PRODUCT_ORDER = ['TNT', 'MCN', 'HYPE'];
+
+const rupiah = (n: number) =>
+  new Intl.NumberFormat('id-ID', {
+    style: 'currency',
+    currency: 'IDR',
+    maximumFractionDigits: 0,
+  }).format(n);
+
 /**
  * Sales KPI targets.
  *
- * Two distinct tables back this screen and they were previously crossed:
- * company-wide targets live in `global_targets`, per-staff targets live in
- * `individual_targets`. The old handler wrote individual targets into
- * `oi_targets` (the per-product OI forecast table) using six column names that
- * do not exist there, so per-staff targets never persisted. Both writes now go
- * through server actions that also set `updated_by` to a real user id, since
- * that column is a foreign key rather than a free-text name.
+ * The GLOBAL tab is read-only. It shows the company's revenue target for the
+ * month as the sum of the per-product milestone targets, broken down so the
+ * figure can be traced back to the number someone actually typed. It used to be
+ * a second form writing to `global_targets`, which held one revenue figure per
+ * month with no product breakdown - so it could not express a target split across
+ * TNT, MCN and HYPE, and it duplicated the milestones under another name. Two
+ * answers to one question is how the two drifted apart.
+ *
+ * The milestone itself is edited on the OI Forecast page, under MILESTONES.
+ * Linking there rather than duplicating the form keeps one place that writes it.
+ *
+ * The INDIVIDUAL tab is the only place anything is written, and its revenue
+ * target is deliberately free of the milestone. The company may aim one rep well
+ * past the team figure, so nothing here derives from, prorates against or caps
+ * at it, and no comparison is drawn on screen.
+ *
+ * The old handler wrote individual targets into `oi_targets` using six column
+ * names that do not exist there, so per-staff targets never persisted. Both
+ * writes now go through server actions that also set `updated_by` to a real user
+ * id, since that column is a foreign key rather than a free-text name.
  */
 export default function AdminTargetsClient({
-  initialGlobalTargets,
+  milestones,
   initialIndividualTargets,
   users,
   currentUser,
@@ -51,7 +85,6 @@ export default function AdminTargetsClient({
 }: AdminTargetsProps) {
   const router = useRouter();
   const currentMonth = format(new Date(), 'yyyy-MM');
-  const [targets, setTargets] = useState<GlobalTargetDTO[]>(initialGlobalTargets);
   const [individualTargets, setIndividualTargets] = useState<IndividualTargetDTO[]>(
     initialIndividualTargets,
   );
@@ -60,12 +93,21 @@ export default function AdminTargetsClient({
   const [mode, setMode] = useState<'global' | 'individual' | 'audit'>('global');
   const [targetUser, setTargetUser] = useState<string>('');
 
-  useEffect(() => setTargets(initialGlobalTargets), [initialGlobalTargets]);
   useEffect(() => setIndividualTargets(initialIndividualTargets), [initialIndividualTargets]);
 
-  const activeGlobalTarget = useMemo(() => {
-    return targets.find((t) => t.monthYear === selectedMonth) || null;
-  }, [targets, selectedMonth]);
+  const monthMilestones = useMemo(() => {
+    return milestones
+      .filter((m) => m.monthYear === selectedMonth)
+      .sort(
+        (a, b) =>
+          PRODUCT_ORDER.indexOf(a.product) - PRODUCT_ORDER.indexOf(b.product),
+      );
+  }, [milestones, selectedMonth]);
+
+  const milestoneTotal = useMemo(
+    () => monthMilestones.reduce((sum, m) => sum + m.targetValue, 0),
+    [monthMilestones],
+  );
 
   const activeIndividualTarget = useMemo(() => {
     if (mode === 'global' || !targetUser) return null;
@@ -79,13 +121,12 @@ export default function AdminTargetsClient({
   });
 
   useEffect(() => {
-    const active = mode === 'global' ? activeGlobalTarget : activeIndividualTarget;
     setFormData({
-      targetChat: active?.targetChat || 0,
-      targetMeeting: active?.targetMeeting || 0,
-      targetRevenue: active?.targetRevenue || 0,
+      targetChat: activeIndividualTarget?.targetChat || 0,
+      targetMeeting: activeIndividualTarget?.targetMeeting || 0,
+      targetRevenue: activeIndividualTarget?.targetRevenue || 0,
     });
-  }, [activeGlobalTarget, activeIndividualTarget, mode]);
+  }, [activeIndividualTarget]);
 
   // Deliberately NOT assignablePICs(). This list is for setting a personal
   // monthly target, and the lord has none - individual_targets is keyed to a
@@ -98,7 +139,8 @@ export default function AdminTargetsClient({
 
   const handleSave = async () => {
     if (!selectedMonth) return toast.error('Bulan harus dipilih');
-    if (mode === 'individual' && !targetUser) return toast.error('Pilih sales personil terlebih dahulu');
+    if (mode !== 'individual') return;
+    if (!targetUser) return toast.error('Pilih sales personil terlebih dahulu');
 
     if (formData.targetChat < 0 || formData.targetMeeting < 0 || formData.targetRevenue < 0) {
       return toast.error('Target tidak boleh bernilai negatif');
@@ -106,74 +148,43 @@ export default function AdminTargetsClient({
 
     setLoading(true);
     try {
-      if (mode === 'global') {
-        const result = await setGlobalTarget({
-          monthYear: selectedMonth,
-          targetChat: Number(formData.targetChat),
-          targetMeeting: Number(formData.targetMeeting),
-          targetRevenue: Number(formData.targetRevenue),
-        });
-        if (!result.success) {
-          toast.error('Gagal menyimpan target: ' + (result.error ?? 'Tidak diizinkan'));
-          return;
-        }
-        setTargets((prev) => {
-          const next: GlobalTargetDTO = {
-            id: selectedMonth,
-            monthYear: selectedMonth,
-            targetChat: Number(formData.targetChat),
-            targetMeeting: Number(formData.targetMeeting),
-            targetRevenue: Number(formData.targetRevenue),
-            updatedBy: currentUser.id,
-            updatedAt: new Date().toISOString(),
-          };
-          return prev.some((t) => t.monthYear === selectedMonth)
-            ? prev.map((t) => (t.monthYear === selectedMonth ? next : t))
-            : [...prev, next];
-        });
-        toast.success('Target global berhasil disimpan');
-        router.refresh();
-      } else {
-        const selectedUserName = users.find((u) => u.id === targetUser)?.name || 'Unknown';
+      const selectedUserName = users.find((u) => u.id === targetUser)?.name || 'Unknown';
 
-        const result = await setIndividualTarget({
+      const result = await setIndividualTarget({
+        userId: targetUser,
+        monthYear: selectedMonth,
+        targetChat: Number(formData.targetChat),
+        targetMeeting: Number(formData.targetMeeting),
+        targetRevenue: Number(formData.targetRevenue),
+      });
+      if (!result.success) {
+        toast.error('Gagal menyimpan target: ' + (result.error ?? 'Tidak diizinkan'));
+        return;
+      }
+      setIndividualTargets((prev) => {
+        const next: IndividualTargetDTO = {
+          id: `${selectedMonth}_${targetUser}`,
           userId: targetUser,
+          userName: selectedUserName,
           monthYear: selectedMonth,
           targetChat: Number(formData.targetChat),
           targetMeeting: Number(formData.targetMeeting),
           targetRevenue: Number(formData.targetRevenue),
-        });
-        if (!result.success) {
-          toast.error('Gagal menyimpan target: ' + (result.error ?? 'Tidak diizinkan'));
-          return;
-        }
-        setIndividualTargets((prev) => {
-          const next: IndividualTargetDTO = {
-            id: `${selectedMonth}_${targetUser}`,
-            userId: targetUser,
-            userName: selectedUserName,
-            monthYear: selectedMonth,
-            targetChat: Number(formData.targetChat),
-            targetMeeting: Number(formData.targetMeeting),
-            targetRevenue: Number(formData.targetRevenue),
-            updatedBy: currentUser.id,
-            updatedAt: new Date().toISOString(),
-          };
-          const existing = prev.findIndex((t) => t.userId === targetUser && t.monthYear === selectedMonth);
-          if (existing === -1) return [...prev, next];
-          return prev.map((t, i) => (i === existing ? next : t));
-        });
-        toast.success(`Target untuk ${selectedUserName} berhasil disimpan`);
-        router.refresh();
-      }
+          updatedBy: currentUser.id,
+          updatedAt: new Date().toISOString(),
+        };
+        const existing = prev.findIndex((t) => t.userId === targetUser && t.monthYear === selectedMonth);
+        if (existing === -1) return [...prev, next];
+        return prev.map((t, i) => (i === existing ? next : t));
+      });
+      toast.success(`Target untuk ${selectedUserName} berhasil disimpan`);
+      router.refresh();
     } catch (error) {
       toast.error('Gagal menyimpan target: Anda tidak memiliki hak untuk mengatur target');
     } finally {
       setLoading(false);
     }
   };
-
-  const activeTarget = mode === 'global' ? activeGlobalTarget : activeIndividualTarget;
 
   return (
     <div className="flex-1 flex flex-col overflow-hidden bg-slate-50">
@@ -287,6 +298,105 @@ export default function AdminTargetsClient({
                 )}
               </div>
             </div>
+          ) : mode === 'global' ? (
+            /* Read-only. The number here is not typed anywhere on this page; it
+               is the sum of the milestone targets, which are set on the OI
+               Forecast page. The breakdown is shown rather than just the total
+               because a total nobody can trace is not a figure anyone trusts. */
+            <div className="bg-white rounded-3xl border border-slate-200 p-8 shadow-sm relative overflow-hidden">
+              <div className="absolute top-0 left-0 w-1 h-full bg-indigo-500"></div>
+
+              <div className="flex flex-col md:flex-row md:items-center justify-between gap-6 border-b border-slate-100 pb-6 mb-6">
+                <div className="flex items-center gap-3">
+                  <div className="w-12 h-12 bg-indigo-50 text-indigo-600 rounded-2xl flex items-center justify-center shadow-inner">
+                    <Target className="w-6 h-6" />
+                  </div>
+                  <div>
+                    <h3 className="text-lg font-black text-slate-900 tracking-tight flex items-center gap-2">
+                      Target Revenue Global
+                      <span className="px-2 py-0.5 rounded-md bg-slate-100 text-slate-500 text-[9px] font-black uppercase tracking-widest flex items-center gap-1">
+                        <Lock className="w-3 h-3" /> Otomatis
+                      </span>
+                    </h3>
+                    <p className="text-xs font-bold text-slate-400">
+                      Jumlah dari target milestone per produk
+                    </p>
+                  </div>
+                </div>
+
+                <div className="relative group">
+                  <Calendar className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 group-focus-within:text-indigo-500 transition-colors" />
+                  <input
+                    type="month"
+                    value={selectedMonth}
+                    onChange={(e) => setSelectedMonth(e.target.value)}
+                    className="pl-11 pr-4 py-3 bg-slate-100 border border-slate-200 rounded-xl text-sm font-bold text-slate-700 focus:ring-2 focus:ring-indigo-500 focus:bg-white transition-all shadow-inner uppercase tracking-widest"
+                  />
+                </div>
+              </div>
+
+              {monthMilestones.length === 0 ? (
+                <div className="py-14 text-center">
+                  <p className="text-sm font-black text-slate-700">
+                    Belum ada target milestone untuk bulan ini
+                  </p>
+                  <p className="text-xs font-bold text-slate-400 mt-2 max-w-md mx-auto leading-relaxed">
+                    Target global dihitung dari milestone TNT, MCN, dan HYPE. Target
+                    chat dan meeting tidak ada di level perusahaan — itu per orang
+                    saja, di tab Individual.
+                  </p>
+                  <a
+                    href="/oi_forecast"
+                    className="inline-flex items-center gap-2 mt-6 px-5 py-3 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-black uppercase tracking-widest transition"
+                  >
+                    <ExternalLink className="w-4 h-4" />
+                    Buka OI Forecast
+                  </a>
+                </div>
+              ) : (
+                <>
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-6">
+                    {monthMilestones.map((m) => (
+                      <div
+                        key={m.id}
+                        className="p-5 bg-slate-50 border border-slate-100 rounded-2xl"
+                      >
+                        <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">
+                          {m.product}
+                        </span>
+                        <p className="text-lg font-black text-slate-900 mt-1 tabular-nums">
+                          {rupiah(m.targetValue)}
+                        </p>
+                      </div>
+                    ))}
+                  </div>
+
+                  <div className="p-6 bg-slate-900 rounded-2xl flex flex-col md:flex-row md:items-center justify-between gap-4">
+                    <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest flex items-center gap-2">
+                      <BarChart3 className="w-4 h-4 text-indigo-400" />
+                      Total target revenue bulan ini
+                    </span>
+                    <span className="text-3xl font-black text-white tabular-nums">
+                      {rupiah(milestoneTotal)}
+                    </span>
+                  </div>
+
+                  <div className="mt-6 pt-6 border-t border-slate-100 flex items-center justify-between gap-4">
+                    <p className="text-xs font-bold text-slate-400 leading-relaxed max-w-md">
+                      Target ini tidak diubah di halaman ini. Diisi lewat OI
+                      Forecast &rarr; tab Milestones, satu per produk.
+                    </p>
+                    <a
+                      href="/oi_forecast"
+                      className="inline-flex items-center gap-2 px-5 py-3 bg-slate-100 hover:bg-indigo-50 hover:text-indigo-700 text-slate-600 rounded-xl text-xs font-black uppercase tracking-widest transition shrink-0"
+                    >
+                      <ExternalLink className="w-4 h-4" />
+                      Ubah di Milestones
+                    </a>
+                  </div>
+                </>
+              )}
+            </div>
           ) : (
             <div className="bg-white rounded-3xl border border-slate-200 p-8 shadow-sm relative overflow-hidden">
               <div className="absolute top-0 left-0 w-1 h-full bg-indigo-500"></div>
@@ -294,11 +404,11 @@ export default function AdminTargetsClient({
               <div className="flex flex-col md:flex-row md:items-center justify-between gap-6 border-b border-slate-100 pb-6 mb-6">
                 <div className="flex items-center gap-3">
                   <div className="w-12 h-12 bg-indigo-50 text-indigo-600 rounded-2xl flex items-center justify-center shadow-inner">
-                    {mode === 'global' ? <Target className="w-6 h-6" /> : <Users className="w-6 h-6" />}
+                    {mode === 'individual' ? <Users className="w-6 h-6" /> : <Target className="w-6 h-6" />}
                   </div>
                   <div>
                     <h3 className="text-lg font-black text-slate-900 tracking-tight">
-                      {mode === 'global' ? 'Set Target Global' : 'Set Target Personil'}
+                      {mode === 'individual' ? 'Set Target Personil' : 'Target Revenue Global'}
                     </h3>
                     <p className="text-xs font-bold text-slate-400">Tentukan angka pencapaian bulanan</p>
                   </div>
@@ -406,14 +516,14 @@ export default function AdminTargetsClient({
               </div>
 
               <div className="pt-8 mt-8 border-t border-slate-100 flex items-center justify-between">
-                {activeTarget ? (
+                {activeIndividualTarget ? (
                   <div className="flex flex-col">
                     <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest">
                       Last Updated
                     </span>
                     <span className="text-xs font-bold text-slate-600">
-                      {new Date(activeTarget.updatedAt).toLocaleString('id-ID')} by{' '}
-                      {users.find((u) => u.id === activeTarget.updatedBy)?.name ?? activeTarget.updatedBy ?? '-'}
+                      {new Date(activeIndividualTarget.updatedAt).toLocaleString('id-ID')} by{' '}
+                      {users.find((u) => u.id === activeIndividualTarget.updatedBy)?.name ?? activeIndividualTarget.updatedBy ?? '-'}
                     </span>
                   </div>
                 ) : (

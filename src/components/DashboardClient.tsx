@@ -7,7 +7,6 @@ import type {
   ContributionDTO,
   GhostedLeadDTO,
   UserProfile,
-  GlobalTargetDTO,
   IndividualTargetDTO,
   LeadStatus,
 } from '@/types';
@@ -29,7 +28,13 @@ interface DashboardProps {
   ghosted: GhostedLeadDTO[];
   user: UserProfile;
   users: UserProfile[];
-  targets: GlobalTargetDTO[];
+  /**
+   * Per-product milestone targets. Only ever used to answer "does this month have
+   * a company target at all", so the rows themselves are not held in state and
+   * the breakdown is not shipped to the browser. The company figure is the sum,
+   * and it is maintained on the OI Forecast page.
+   */
+  milestones: { monthYear: string; product: string; targetValue: number }[];
   individualTargets: IndividualTargetDTO[];
 }
 
@@ -159,7 +164,7 @@ export default function DashboardClient({
   ghosted: initialGhosted,
   user,
   users,
-  targets,
+  milestones,
   individualTargets,
 }: DashboardProps) {
   const router = useRouter();
@@ -352,7 +357,18 @@ export default function DashboardClient({
   const admins = useMemo(() => assignablePICNames(users), [users]);
 
   const currentTargetMonth = filterEnd.slice(0, 7) || format(new Date(), 'yyyy-MM');
-  const activeTarget = useMemo(() => targets?.find(t => t.monthYear === currentTargetMonth), [targets, currentTargetMonth]);
+  /**
+   * Whether the selected month has any company target at all.
+   *
+   * A milestone row with a target of zero counts as set: the office has made a
+   * decision for that month, it just happens to be zero. What matters is that
+   * the row exists, so a month someone deliberately zeroed does not nag them
+   * every time they open the page.
+   */
+  const monthHasTarget = useMemo(
+    () => milestones?.some((m) => m.monthYear === currentTargetMonth) ?? false,
+    [milestones, currentTargetMonth],
+  );
 
   // The scorecards render the same eight aggregates the server computed.
   const scorecard = useMemo(() => ({
@@ -969,9 +985,10 @@ export default function DashboardClient({
                   </div>
                 );
               })}
-              {(!activeTarget && filterStart && filterEnd) && (
+              {(!monthHasTarget && filterStart && filterEnd) && (
                 <div className="text-xs font-bold text-amber-600 bg-amber-50 p-4 rounded-xl border border-amber-100">
-                  Belum ada target global di set untuk bulan {currentTargetMonth}.
+                  Belum ada target milestone untuk bulan {currentTargetMonth}. Isi di OI
+                  Forecast &rarr; Milestones.
                 </div>
               )}
               {(!filterStart || !filterEnd) && (

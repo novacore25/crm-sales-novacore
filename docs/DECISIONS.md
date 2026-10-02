@@ -109,6 +109,50 @@ Kalau dokumen panjang, seluruh penutup pindah ke lembar kedua dan halaman pertam
 cuma berisi tabel. Dokumen satu halaman tidak terpengaruh sama sekali — dan itu
 yang benar-benar dipakai, karena invoice kantor tidak pernah dua halaman.
 
+### Tiga tabel target, lalu dua dicabut
+
+Aplikasi pernah punya tiga tabel target yang tidak saling schn. Semuanya
+bertanya "berapa target bulan ini" dengan cara berbeda, dananswer-nya berbeda
+pula — itu sebabnya halaman Set Targets selalu bilang "belum ada target"
+padahal OI Forecast menampilkan 1,8 miliar.
+
+Aturan bisnis yang sudah dikonfirmasi lord:
+
+| Jenis target | Sumber | Kenapa |
+|---|---|---|
+| **Revenue tim** | **jumlah milestone per produk** | Satu-satunya tempat yang diisi, dan bisa memecah TNT / MCN / HYPE |
+| **Chat & meeting** | **individual saja** | Tidak ada lagi target chat/meeting di level perusahaan |
+| **Revenue individual** | **individual, bebas** | Boleh lebih besar atau lebih kecil dari milestone |
+
+`global_targets` jadi **tidak terbaca dan tidak ditulis**. Tab GLOBAL di halaman
+Set Targets masih ada tapi **read-only**: menampilkan total milestone beserta
+rinciannya per produk, plus tombol ke OI Forecast → Milestones untuk mengubahnya.
+
+Tabel dan datanya **sengaja tidak dihapus**. Menghapus itu migrasi destruktif
+tanpa keuntungan, dan kalau angkanya someday Needed, sejarahnya masih ada.
+
+### Target individual tidak boleh terkait dengan milestone
+
+Ini yang paling mudah dilanggar karena kelihatan\logis untuk czasnya. Target
+seseorang **tidak** diambil dari milestone, **tidak** diporar oleh milestone, dan
+**tidak** dibatasi olehnya.
+
+Lord: perusahaan bisa menargetkan satu individu dengan angka besar walaupun
+milestone-nya tidak sebesar itu. Jadi sistem tidak boleh:
+//
+//- membagi milestone ke setiap orang
+- memotong target orang kalau melebihi milestone
+- menampilkan perbandingan "di atas/bawah milestone" di layar
+
+Milestone adalah target **tim**. Target orang berdiri sendiri.
+
+### Angka total harus bisa ditelusuri
+
+Total target global ditampilkan **berserta rinciannya per produk**, bukan angka
+tunggal. Total yang tidak bisa ditelusuri ke keputusan yang menghasilkannya
+tidak akan dipercaya, dan memang begitu: di sinilah asalusul dua angka global
+yang berbeda tanpa ada yang sadar.
+
 ### Rekening dan penandatangan disimpan di dokumen, bukan dibaca dari tabel
 
 Kalau tabelnya diubah, dokumen lama akan berubah retroactive. Dokumen lama harus

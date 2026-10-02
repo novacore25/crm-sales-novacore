@@ -1,7 +1,7 @@
 import DashboardClient from '@/components/DashboardClient';
 import { getDashboardStats, getGhostedLeads, getIndividualContributions } from '@/app/actions/analytics-actions';
 import { getUsers } from '@/app/actions/user-actions';
-import { getGlobalTargets, getIndividualTargets } from '@/app/actions/target-actions';
+import { getMilestoneTargets, getIndividualTargets } from '@/app/actions/target-actions';
 import { requireUser } from '@/lib/auth';
 
 /**
@@ -15,16 +15,23 @@ import { requireUser } from '@/lib/auth';
  *
  * Stats come from one aggregate query instead, which is both faster and
  * smaller than shipping the dataset to the browser to count it there.
+ *
+ * The bars on this page are measured against per-rep targets, never against a
+ * company figure, so the only thing needed from the company level is whether a
+ * target exists for the month - which now means the per-product milestones.
+ * That check used to read `global_targets` and therefore reported "no target set"
+ * on a month whose milestones were fully set, because the two were never
+ * reconciled.
  */
 export default async function DashboardPage() {
   const user = await requireUser();
 
-  const [stats, contributions, ghosted, users, targets, individualTargets] = await Promise.all([
+  const [stats, contributions, ghosted, users, milestones, individualTargets] = await Promise.all([
     getDashboardStats({}),
     getIndividualContributions({}),
     getGhostedLeads({}),
     getUsers(),
-    getGlobalTargets(),
+    getMilestoneTargets(),
     getIndividualTargets(),
   ]);
 
@@ -36,7 +43,7 @@ export default async function DashboardPage() {
         ghosted={ghosted}
         user={user}
         users={users}
-        targets={targets}
+        milestones={milestones}
         individualTargets={individualTargets}
       />
     </div>

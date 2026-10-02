@@ -129,15 +129,11 @@ export interface TaskDTO {
   leadName: string;
 }
 
-export interface GlobalTargetDTO {
-  id: string;
-  monthYear: string;
-  targetChat: number;
-  targetMeeting: number;
-  targetRevenue: number;
-  updatedBy: string | null;
-  updatedAt: string;
-}
+/*
+ * No GlobalTargetDTO. The company revenue target is the sum of the per-product
+ * milestone targets in `oi_targets` and is not stored, so there is no shape for
+ * it to travel in. See docs/DECISIONS.md.
+ */
 
 export interface IndividualTargetDTO {
   id: string;
