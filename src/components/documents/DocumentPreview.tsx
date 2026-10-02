@@ -776,47 +776,50 @@ function CentredDescription({ text }: { text: string | null | undefined }) {
 // Shared
 // ---------------------------------------------------------------------------
 
-function Signatures({
-  doc,
-  maroon,
-  companyLine,
-}: {
-  doc: PreviewDoc;
-  maroon?: boolean;
-  companyLine?: string;
-}) {
+function Signatures({ doc, maroon }: { doc: PreviewDoc; maroon?: boolean }) {
   const nameColor = maroon ? MAROON_TEXT : 'text-slate-900';
   return (
-    /* The gap above the closing line and the gap reserved for the wet signature
-       are both taken from the office's own invoice, not chosen by eye.
+    /* A grid, not two flex columns.
 
-       Measured on their PDF: the totals block ends at y 668.1pt and "Thank you,"
-       starts at 711.4pt, which is 15.3mm. "Best Regards" ends at 736.6 and the
-       signatory name starts at 828.8, which is 32.6mm - that gap is where
-       somebody signs in ink, and at 9.1mm there was no room for anything but a
-       name typed on top of the line above it.
+       The flex version aligned the two blocks with items-end, which lines up the
+       bottoms. The left block has two lines, the name and the title, and the
+       right has one, the name, so "RUBEN ARIANTO" sat a whole line above
+       "Hibban Nazala" and the two names looked like they belonged to different
+       rows. Rows in a grid are shared, so both names land in the same row and
+       share a baseline regardless of what sits above them.
 
-       Both margins are fixed millimetres rather than Tailwind steps for the same
-       reason the number templates are: the office prints on the same three
-       widths, so the gaps have to hold at a known size. */
-    <div className="mt-[13.3mm] print:break-inside-avoid">
-      {companyLine && (
-        <div className="text-[9.5px] font-black mb-[32mm]">{companyLine}</div>
-      )}
-      <div className="flex justify-between items-end gap-8">
-        <div className="text-[9.5px]">
-          {maroon && (
-            <div className={`font-black mb-[32mm] ${nameColor}`}>
-              Thank you,<br />Best Regards
-            </div>
-          )}
-          <div className="font-black underline underline-offset-2">{doc.signatoryName || '—'}</div>
-          <div className="font-black uppercase text-slate-500 mt-0.5">{doc.signatoryTitle || '—'}</div>
+       "Approve by" carries self-start so it aligns with "Thank you," rather
+       than with "Best Regards" below it. That is what the office does: on their
+       invoice both sit at y 711.4pt, the first line of the two-line greeting.
+
+       Spacing is set from the office's own invoice and then adjusted on the
+       office's instruction. Their PDF puts 15.3mm above the greeting and 32.6mm
+       above the name; the gap above was opened up and the signature gap closed,
+       because that is the balance they asked for. Fixed millimetres rather than
+       Tailwind steps, for the same reason the number templates are: these gaps
+       have to hold at a known size on the same three paper widths. */
+    <div className="mt-[18mm] print:break-inside-avoid">
+      <div className="grid grid-cols-2 gap-x-8 items-end text-[9.5px]">
+        <div className={`font-black ${nameColor}`}>
+          Thank you,
+          <br />
+          Best Regards
         </div>
-        <div className="text-[9.5px] text-right">
-          <div className={`font-black mb-[32mm] ${nameColor}`}>Approve by</div>
-          <div className="font-black">{doc.approverName || doc.clientName || '—'}</div>
+        <div className={`text-right font-black self-start ${nameColor}`}>
+          Approve by
         </div>
+
+        <div className="mt-[17mm] font-black underline underline-offset-2">
+          {doc.signatoryName || '—'}
+        </div>
+        <div className="mt-[17mm] text-right font-black">
+          {doc.approverName || doc.clientName || '—'}
+        </div>
+
+        <div className="font-black uppercase text-slate-500">
+          {doc.signatoryTitle || '—'}
+        </div>
+        <div />
       </div>
     </div>
   );
