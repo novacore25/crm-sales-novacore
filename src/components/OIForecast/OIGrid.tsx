@@ -1,5 +1,5 @@
 "use client";
-import { Fragment, useCallback, useEffect, useRef, useState } from 'react';
+import { Fragment, useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import type { LeadDTO, OIForecastDTO, ProductOffered, UserProfile } from '@/types';
 import { createOIForecast, deleteOIForecast, setOIForecastStatus, updateOIForecastField } from '@/app/actions/forecast-actions';
 import { getLeadById } from '@/app/actions/lead-actions';
@@ -139,6 +139,83 @@ export default function OIGrid({
   const [showDropdown, setShowDropdown] = useState(false);
   const [selectedLeadForStatus, setSelectedLeadForStatus] = useState<LeadDTO | null>(null);
   const [saving, setSaving] = useState(false);
+
+  /*
+   * Horizontal scrolling, and knowing which row you are on.
+   *
+   * Two separate problems, both about being able to reach the columns on the
+   * right of a grid that is wider than the screen:
+   *
+   * 1. The scrollbar belonged to the element that scrolls on both axes, so it sat
+   *    at the foot of a thousand rows. `barRef` is a second, permanently visible
+   *    scrollbar pinned outside that element, kept in step with it in both
+   *    directions. `syncing` stops the two events from driving each other.
+   *
+   * 2. Once scrolled right, nothing on screen said which brand a row belonged
+   *    to. The first three columns are pinned for that.
+   *
+   * The pin offsets are measured from the rendered header cells rather than
+   * hardcoded, because a table cell's `w-32` is a suggestion and Brand Name is
+   * allowed to be as long as the name needs. Guessing the offsets would overlap
+   * the columns the moment a name was long.
+   */
+  const rootRef = useRef<HTMLDivElement>(null);
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const barRef = useRef<HTMLDivElement>(null);
+  const headRef = useRef<HTMLTableSectionElement>(null);
+  const syncing = useRef(false);
+  const [tableWidth, setTableWidth] = useState(0);
+
+  const handleMainScroll = useCallback(() => {
+    const main = scrollRef.current;
+    const bar = barRef.current;
+    if (!main || !bar || syncing.current) return;
+    syncing.current = true;
+    bar.scrollLeft = main.scrollLeft;
+    requestAnimationFrame(() => { syncing.current = false; });
+  }, []);
+
+  const handleBarScroll = useCallback(() => {
+    const main = scrollRef.current;
+    const bar = barRef.current;
+    if (!main || !bar || syncing.current) return;
+    syncing.current = true;
+    main.scrollLeft = bar.scrollLeft;
+    requestAnimationFrame(() => { syncing.current = false; });
+  }, []);
+
+  useLayoutEffect(() => {
+    const root = rootRef.current;
+    const main = scrollRef.current;
+    const head = headRef.current;
+    if (!root || !main || !head) return;
+
+    const measure = () => {
+      setTableWidth(main.scrollWidth);
+
+      const cells = head.querySelectorAll('th');
+      if (cells.length < 3) return;
+      const w1 = cells[0]?.offsetWidth ?? 0;
+      const w2 = cells[1]?.offsetWidth ?? 0;
+      root.style.setProperty('--pin-2', `${w1}px`);
+      root.style.setProperty('--pin-3', `${w1 + w2}px`);
+    };
+
+    measure();
+    const ro = new ResizeObserver(measure);
+    ro.observe(main);
+    return () => ro.disconnect();
+  }, [forecasts.length, activeTab]);
+
+  useEffect(() => {
+    const bar = barRef.current;
+    const main = scrollRef.current;
+    if (!bar || !main) return;
+    // A narrower table, or a different product tab, can leave the bar holding a
+    // scrollLeft that the new content cannot reach.
+    bar.scrollLeft = 0;
+    main.scrollLeft = 0;
+  }, [activeTab]);
 
   /**
    * Cell edits are debounced.
@@ -436,18 +513,32 @@ export default function OIGrid({
         )}
       </div>
 
-      {/* SPREADSHEET TABLE DIV */}
-      <div className="flex-1 overflow-auto custom-scrollbar">
+      {/* SPREADSHEET TABLE DIV
+          Wrapped so the horizontal scrollbar can be pinned outside the element
+          that scrolls. It used to sit at the bottom of a container that scrolls on
+          both axes, which meant reaching the columns on the right meant scrolling
+          to the very bottom of a thousand rows first - the bar was always exactly
+          where the eye was not. */}
+      <div ref={rootRef} className="relative flex-1 min-h-0">
+        <div
+          ref={scrollRef}
+          onScroll={handleMainScroll}
+          className="h-full overflow-auto custom-scrollbar pb-4"
+        >
         <table className="w-full text-left border-collapse min-w-max text-sm">
-          <thead className="sticky top-0 bg-slate-100 shadow-sm z-20">
+          <thead ref={headRef} className="sticky top-0 bg-slate-100 shadow-sm z-20">
             <tr>
-              <th className="px-4 py-3 border-b border-r border-slate-200 font-black text-[10px] text-slate-500 uppercase tracking-widest w-12 text-center">
+              {/* Pinned columns. z above the other header cells so they slide
+                  underneath, and an opaque background so rows scrolling past do
+                  not show through. Offsets come from --pin-2 / --pin-3, measured
+                  off these very cells in useLayoutEffect. */}
+              <th className="sticky left-0 z-30 px-4 py-3 border-b border-r border-slate-200 bg-slate-100 font-black text-[10px] text-slate-500 uppercase tracking-widest w-12 text-center">
                 Act
               </th>
-              <th className="px-4 py-3 border-b border-r border-slate-200 font-black text-[10px] text-slate-500 uppercase tracking-widest w-32">
+              <th className="sticky left-[var(--pin-2)] z-30 px-4 py-3 border-b border-r border-slate-200 bg-slate-100 font-black text-[10px] text-slate-500 uppercase tracking-widest w-32">
                 Scenario
               </th>
-              <th className="px-4 py-3 border-b border-r border-slate-200 font-black text-[10px] text-slate-900 uppercase tracking-widest min-w-[150px]">
+              <th className="sticky left-[var(--pin-3)] z-30 px-4 py-3 border-b border-r border-slate-200 bg-slate-100 font-black text-[10px] text-slate-900 uppercase tracking-widest min-w-[150px]">
                 Brand Name
               </th>
               <th className="px-4 py-3 border-b border-r border-slate-200 font-black text-[10px] text-indigo-700 uppercase tracking-widest bg-indigo-50/50 w-20">
@@ -525,7 +616,7 @@ export default function OIGrid({
                 return (
                   <Fragment key={f.id}>
                   <tr className="hover:bg-slate-50/80 group border-b border-slate-100">
-                    <td className="px-2 py-2 border-r border-slate-100 text-center">
+                    <td className="sticky left-0 z-10 px-2 py-2 border-r border-slate-100 bg-white text-center group-hover:bg-slate-50/80">
                       <button
                         onClick={() => handleDelete(f.id)}
                         className="p-1.5 text-slate-300 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors"
@@ -533,14 +624,14 @@ export default function OIGrid({
                         <Trash2 className="w-4 h-4" />
                       </button>
                     </td>
-                    <td className={`px-2 py-2 border-r border-slate-100 text-center`}>
+                    <td className={`sticky left-[var(--pin-2)] z-10 px-2 py-2 border-r border-slate-100 bg-white text-center group-hover:bg-slate-50/80`}>
                       <span
                         className={`inline-block px-2 py-1 rounded text-[10px] font-black uppercase tracking-wider ${scenario.color} shadow-sm`}
                       >
                         {scenario.name.split(' (')[0]}
                       </span>
                     </td>
-                    <td className="px-4 py-2 border-r border-slate-100 font-black text-slate-700">{brandName}</td>
+                    <td className="sticky left-[var(--pin-3)] z-10 px-4 py-2 border-r border-slate-100 bg-white font-black text-slate-700 group-hover:bg-slate-50/80">{brandName}</td>
                     <td className="px-2 py-2 border-r border-slate-100 bg-indigo-50/20">
                       <input
                         type="number"
@@ -811,6 +902,35 @@ export default function OIGrid({
             )}
           </tbody>
         </table>
+        </div>
+
+        {/*
+          The pinned horizontal scrollbar.
+
+          It is a real scroll container mirroring the table's own scrollLeft, not
+          a fake: dragging it moves the grid, and scrolling the grid moves it. The
+          guard flag matters because scroll events fire from both directions and
+          without it they ping-pong.
+
+          It lives outside the scrolling element, so it stays at the foot of the
+          card no matter how far down the rows the user has gone. Without it,
+          reading a value from the last column meant scrolling to the bottom of
+          every row first, which is exactly what a wide grid should never require.
+
+          Sized from the table's real scrollWidth rather than a guess, because the
+          column count and the content both change.
+        */}
+        <div
+          ref={barRef}
+          onScroll={handleBarScroll}
+          /* Deliberately visible. A subtle strip can be technically present and
+             still never be noticed, which is the same problem as the scrollbar
+             it replaces. */
+          className="absolute bottom-0 left-0 right-0 h-4 overflow-x-auto overflow-y-hidden bg-slate-200 border-t-2 border-slate-400 cursor-pointer"
+          style={{ scrollbarWidth: 'auto' }}
+        >
+          <div style={{ width: tableWidth, height: 1 }} />
+        </div>
       </div>
 
       {selectedLeadForStatus && (

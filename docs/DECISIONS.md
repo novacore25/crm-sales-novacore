@@ -359,6 +359,41 @@ ada di mana pun **dilewati**, bukan dianggap melanggar: "tidak diketahui" bukan
 Pesan error menyebut **tempat pertama** urutannya rusak, bukan selisih terbesar,
 karena di situlah ada yang bisa diperbaiki.
 
+### Grid lebar: scrollbar dipin dan kolom kiri dikunci
+
+Tabel OI punya 16 kolom dan jauh lebih lebar dari layar. Dulu satu container
+`overflow-auto` melayani sumbu **vertikal dan horizontal** sekaligus, jadi
+scrollbar horizontal ikut turun ke kaki ribuan baris. Untuk membaca kolom
+"Quotation" di kanan, harus menggulir ke paling bawah dulu - persis kebalikan
+dari yang diharapkan.
+
+Dua perbaikan, keduanya soal jangkauan:
+
+**Scrollbar kedua yang dipin.** Bukan Element di luar container yang
+meng-scrolling, jadi ia tidak ikut bergeser bersama baris. Ia menjaga
+`scrollLeft` dua arah dengan container aslinya, dengan flag penjaga supaya
+event-nya tidak saling mendorong. Lebarnya diambil dari `scrollWidth` tabel
+sesungguhnya, bukan perkiraan, karena jumlah kolom dan isi sel keduanya
+berubah-ubah.
+
+**Tiga kolom kiri dikunci.** Act, Scenario, dan Brand Name tetap terlihat saat
+menggeser ke kanan, jadi Anda tahu baris mana yang sedang dibaca. Offset-nya
+**diukur dari sel header yang benar-benar ter-render** dan ditaruh di
+`--pin-2` / `--pin-3`. Nilai di-hardcode akan langsung tumpang tindih begitu
+satu nama brand panjang, dan `w-32` pada sel tabel hanyalah saran - Brand
+Name memang boleh selebar yang diperlukan namanya.
+
+Keduanya diuji di browser sungguhan lewat `scripts/render-oigrid.tsx`, bukan
+dibaca saja: scrollbar cermin benar-benar menggeser tabel, dan sebaliknya tabel
+menggeser scrollbar, keduanya tidak saling mendorong, dan ketiga kolom tetap
+di offsetnya pada `scrollLeft` 900px.
+
+Pelajaran dari pengujian itu: pemeriksaan pertama hanya bertanya "apakah
+`position` sticky" dan "apakah latar	opaque" - keduanya **lolos tanpa ada
+offset sama sekali**, persis seperti versi yang tidak mengunci apa pun. Yang
+dipakai adalah nilai `left` sesudah digeser. Menguji properti, bukan
+perilaku, adalah cara untuk lolos tanpa benar.
+
 ## Open
 
 Hal-hal yang perlu dilanjutkan.
