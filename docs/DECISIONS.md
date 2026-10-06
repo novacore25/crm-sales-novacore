@@ -317,6 +317,48 @@ build **tidak berisi** AppLayout maupun Sidebar, sementara route Tetangga di
 dalam `(app)` masih memuat keduanya. Kontrolnya penting - tanpanya, pemeriksaan
 yang lolos mungkin lolos karena alasan yang salah.
 
+### Staff boleh menulis deal value dan melengkapi tanggal funnel
+
+`staff.canEditDealValue` bernilai **true**. Sebelumnya **false**, dan itu
+menystoppable seluruh tim dari mencatat apa pun.
+
+`updateLead` membuka dengan `requirePermission('canEditDealValue')`, dan modal
+funnel memanggilnya **sebelum** menulis riwayat. Jadi setiap sales yang menekan
+"Terapkan" mendapat exception, React menutup pesannya dengan "Minified React
+error #441" di produksi, dan **tidak ada tahap yang pernah tertulis**. Bukan
+sekali pun - dan gejalanyalooked seperti satu kasus, padahal sebenarnya selalu.
+
+Yang membuatnya tidak konsisten: grid OI Forecast **sudah** membiarkan sales
+mengubah nominal deal di barisnya sendiri, karena `updateOIForecastField` hanya
+memakai `requireUser()`. Jadi nominal bisa diubah di satu tempat dan terkunci di
+tempat lain.
+
+Konfirmasi lord: staff boleh menulis deal value, dan boleh melengkapi tanggal
+funnel yang belum terisi. Menutup deal memang pekerjaannya.
+
+Catatan Operasional: `requirePermission` melempar, tidak mengembalikan. Kalau
+dipanggil dari action yang tidak dibungkus `guardAction`, satu permission yang
+salah akan muncul sebagai "Minified React error #441", bukan sebagai pesan izin
+yang bisa dibaca.
+
+### Tanggal funnel harus berurutan, tidak boleh mundur
+
+Aturan dari lord: chat dulu, baru respon, lalu meeting, lalu Close Win atau
+Close Lost. Setiap tahap yang terisi harus punya tanggal, dan tanggal-tanggal itu
+tidak boleh lebih baru ke belakang.
+
+Modal sudah menolak menutup deal bila tahap sebelumnya belum punya tanggal, tapi
+tidak memeriksa **urutannya** - jadi deal bisa ditutup dengan tanggal chat yang
+setelahnya.
+
+Pemeriksaannya di `src/lib/funnel-order.ts`, murni tanpa React dan database,
+dengan assertion di `scripts/check-funnel-order.ts`. Tahap yang tanggalnya tidak
+ada di mana pun **dilewati**, bukan dianggap melanggar: "tidak diketahui" bukan
+"lebih awal", dan menebak posisinya akan menyalahkan tahap yang salah.
+
+Pesan error menyebut **tempat pertama** urutannya rusak, bukan selisih terbesar,
+karena di situlah ada yang bisa diperbaiki.
+
 ## Open
 
 Hal-hal yang perlu dilanjutkan.

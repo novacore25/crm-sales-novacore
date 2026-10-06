@@ -94,7 +94,22 @@ export const ROLE_PERMISSIONS: RolePermissions = {
     canDeleteFunnelHistory: false,
     canClearAllHistory: false,
     canDeleteNotes: false,
-    canEditDealValue: false,
+    /*
+     * Was false, and that silently stopped the entire sales team from recording
+     * anything. `updateLead` opens with requirePermission('canEditDealValue'),
+     * and the funnel modal calls it before writing the history - so every rep who
+     * pressed "Terapkan" got an exception, React replaced the message with
+     * "Minified React error #441", and no stage was ever written. Not once.
+     *
+     * It also contradicted the rest of the app: the OI Forecast grid already lets
+     * a rep set the deal value on their own row, since updateOIForecastField only
+     * calls requireUser(). So the nominal could be changed in one place and was
+     * locked in another.
+     *
+     * Confirmed by the lord: staff may write the deal value and may complete the
+     * funnel dates that were left blank. Closing a deal is the job.
+     */
+    canEditDealValue: true,
     canImportCsv: true,
   },
 };

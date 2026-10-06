@@ -7,6 +7,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import { cn } from '@/lib/utils';
 import CurrencyInput from './common/CurrencyInput';
 import { addFunnelHistory, updateLead, createNote, editFunnelHistory } from '@/app/actions/lead-actions';
+import { effectiveStageDate, validateFunnelOrder } from '@/lib/funnel-order';
 import { getOIForecasts, setOIForecastStatus, updateOIForecastField } from '@/app/actions/forecast-actions';
 import { assignablePICs } from '@/lib/pic-filter';
 
@@ -114,6 +115,44 @@ export default function StatusModalClient({ isOpen, onClose, lead, user, users =
 
     if (selectedDate > today) {
       toast.error("Tanggal tidak boleh di masa depan!");
+      return;
+    }
+
+    /*
+     * The trail must run forwards: chat, then responsed, then meeting, then the
+     * close. The checks above only insisted the earlier stages had a date, not
+     * that the dates were in order, so a deal could be closed with a chat that
+     * happened afterwards.
+     *
+     * Each stage is dated from whatever will apply after this save - the retro
+     * fill the rep typed, else the lead's own column, else the newest existing
+     * history row. A stage with nothing anywhere is skipped rather than assumed
+     * to be today, because guessing a position for it would blame the wrong one.
+     */
+    const orderError = validateFunnelOrder({
+      chated: effectiveStageDate({
+        stage: 'Chated',
+        leadColumn: lead.dateChated,
+        history,
+        pending: showMissingChated ? missingChatedDate : null,
+      }),
+      responded: effectiveStageDate({
+        stage: 'Responsed',
+        leadColumn: lead.dateResponsed,
+        history,
+        pending: showMissingResponsed ? missingResponsedDate : null,
+      }),
+      setMeeting: effectiveStageDate({
+        stage: 'Set Meeting',
+        leadColumn: lead.dateSetMeeting,
+        history,
+        pending: showMissingSetMeeting ? missingSetMeetingDate : null,
+      }),
+      closing: date,
+      closingStage: status,
+    });
+    if (orderError) {
+      toast.error(orderError);
       return;
     }
 
