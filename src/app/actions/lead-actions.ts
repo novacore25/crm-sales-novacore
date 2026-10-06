@@ -7,6 +7,7 @@ import { z } from 'zod';
 import { db } from '@/db';
 import { auditLogs, funnelHistory, leadNotes, leads, oiForecasts } from '@/db/schema';
 import { requireLord, requirePermission, requireUser } from '@/lib/auth';
+import { guardAction } from '@/lib/action-guard';
 import { FUNNEL_STAGES } from '@/db/enums';
 
 // ============================================================================
@@ -514,7 +515,11 @@ const updateLeadSchema = createLeadSchema.partial().extend({
   dateFailed: z.string().optional().nullable(),
 });
 
-export async function updateLead(
+/* Wrapped so a database rejection reaches the user as a readable
+   message. See src/lib/action-guard.ts for why. */
+export const updateLead = guardAction('updateLead', updateLeadImpl);
+
+async function updateLeadImpl(
   input: z.infer<typeof updateLeadSchema>,
 ): Promise<{ success: boolean; error?: string }> {
   const user = await requirePermission('canEditDealValue');
@@ -750,6 +755,10 @@ const addHistorySchema = z.object({
   campaignNumber: z.number().int().optional().nullable(),
 });
 
+/* Wrapped so a database rejection reaches the user as a readable
+   message. See src/lib/action-guard.ts for why. */
+export const addFunnelHistory = guardAction('addFunnelHistory', addFunnelHistoryImpl);
+
 /**
  * Append a funnel entry and keep the lead's denormalised summary in sync.
  *
@@ -757,7 +766,7 @@ const addHistorySchema = z.object({
  * `leads` update and the `funnel_history` insert as separate requests, so a
  * failure between them left the lead claiming a stage it had no history for.
  */
-export async function addFunnelHistory(
+async function addFunnelHistoryImpl(
   input: z.infer<typeof addHistorySchema>,
 ): Promise<{ success: boolean; error?: string }> {
   const user = await requireUser();
@@ -837,6 +846,10 @@ const editHistorySchema = z.object({
   note: z.string().optional().nullable(),
 });
 
+/* Wrapped so a database rejection reaches the user as a readable
+   message. See src/lib/action-guard.ts for why. */
+export const editFunnelHistory = guardAction('editFunnelHistory', editFunnelHistoryImpl);
+
 /**
  * Edit an existing funnel entry.
  *
@@ -844,7 +857,7 @@ const editHistorySchema = z.object({
  * `by`, neither of which is a column on funnel_history - the real names are
  * `date_occurred` and `by_user_name` - so every save failed at runtime.
  */
-export async function editFunnelHistory(
+async function editFunnelHistoryImpl(
   input: z.infer<typeof editHistorySchema>,
 ): Promise<{ success: boolean; error?: string }> {
   await requirePermission('canEditFunnelHistory');
@@ -982,7 +995,11 @@ const createNoteSchema = z.object({
   authorName: z.string().optional(),
 });
 
-export async function createNote(
+/* Wrapped so a database rejection reaches the user as a readable
+   message. See src/lib/action-guard.ts for why. */
+export const createNote = guardAction('createNote', createNoteImpl);
+
+async function createNoteImpl(
   input: z.infer<typeof createNoteSchema>,
 ): Promise<{ success: boolean; id?: string; error?: string }> {
   const user = await requireUser();

@@ -7,6 +7,7 @@ import { z } from 'zod';
 import { db } from '@/db';
 import { funnelHistory, leads, oiForecasts } from '@/db/schema';
 import { requireUser } from '@/lib/auth';
+import { guardAction } from '@/lib/action-guard';
 import { FUNNEL_STAGES } from '@/db/enums';
 
 /**
@@ -354,6 +355,10 @@ const EDITABLE_TEXT_FIELDS = new Set([
   'dateInvoice',
 ]);
 
+/* Wrapped so a database rejection reaches the user as a readable
+   message. See src/lib/action-guard.ts for why. */
+export const updateOIForecastField = guardAction('updateOIForecastField', updateOIForecastFieldImpl);
+
 /**
  * Update one cell of a forecast row.
  *
@@ -363,7 +368,7 @@ const EDITABLE_TEXT_FIELDS = new Set([
  * nothing. An explicit allowlist makes that class of bug impossible: anything
  * not in the sets is rejected before it reaches SQL.
  */
-export async function updateOIForecastField(input: {
+async function updateOIForecastFieldImpl(input: {
   id: string;
   field: string;
   value: string | number | null;
@@ -442,7 +447,11 @@ export async function updateOIForecastField(input: {
  * progress. It also never cleared date_closed, so a lead reverted from WIN kept
  * a closing date that no longer meant anything.
  */
-export async function setOIForecastStatus(input: {
+/* Wrapped so a database rejection reaches the user as a readable
+   message. See src/lib/action-guard.ts for why. */
+export const setOIForecastStatus = guardAction('setOIForecastStatus', setOIForecastStatusImpl);
+
+async function setOIForecastStatusImpl(input: {
   id: string;
   status: 'WIN' | 'LOSE' | 'OPEN';
   dealValue?: number | null;
