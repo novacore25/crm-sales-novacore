@@ -183,6 +183,89 @@ export default function OIGrid({
     main.scrollBy({ left: direction * colWidth, behavior: 'smooth' });
   }, [colWidth]);
 
+  /*
+   * Hold to travel.
+   *
+   * A click moving exactly one column is right for lining up a column, and wrong
+   * for getting to the far end: the grid is roughly 2000px of travel at 80px a
+   * click, so reaching the last column took twenty-six clicks. Both are wanted,
+   * so the click keeps its meaning and holding borrows the long distance.
+   *
+   * The speed ramps instead of running flat. Flat was worse than useless - a fast
+   * constant rate makes the columns unreadable while it runs, and a slow one is
+   * the same twenty-six clicks by another name. Starting at a pace you can follow
+   * and accelerating to a rate that actually crosses the grid means the slow part
+   * is where you stop to read and the fast part is where you are just passing.
+   *
+   * A tap that ends before the ramp starts is treated as a plain click and moves
+   * exactly one column, so the short-move behaviour is not lost.
+   *
+   * The loop stops at either end, because scrolling past the last pixel is how a
+   * runaway loop tends to keep running forever.
+   */
+  const holdRef = useRef<number | null>(null);
+  const heldSince = useRef(0);
+
+  const stopHold = useCallback(() => {
+    if (holdRef.current !== null) cancelAnimationFrame(holdRef.current);
+    holdRef.current = null;
+  }, []);
+
+  const startHold = useCallback((direction: 1 | -1) => {
+    stopHold();
+    const main = scrollRef.current;
+    if (!main || !colWidth) return;
+    heldSince.current = performance.now();
+
+    const step = () => {
+      const elapsed = performance.now() - heldSince.current;
+
+      // Nothing moves during the grace period. This has to be an early return,
+      // not a small distance: clamping the ramp to zero still multiplied by the
+      // base rate, so a tap drifted a column on its own before finishHold added
+      // the second one. A tap has to move exactly one column, so it may not
+      // move at all until the hold is certain.
+      if (elapsed < 250) {
+        holdRef.current = requestAnimationFrame(step);
+        return;
+      }
+
+      const ramp = Math.min(1, (elapsed - 250) / 900);
+      const before = main.scrollLeft;
+      main.scrollLeft = before + direction * colWidth * (0.3 + 2.2 * ramp);
+      // At an end there is nowhere left to go; stop instead of spinning.
+      if (main.scrollLeft === before) {
+        stopHold();
+        return;
+      }
+      holdRef.current = requestAnimationFrame(step);
+    };
+    holdRef.current = requestAnimationFrame(step);
+  }, [colWidth, stopHold]);
+
+  const finishHold = useCallback((direction: 1 | -1) => {
+    const held = heldSince.current;
+    const tapped = performance.now() - held < 250;
+    stopHold();
+    heldSince.current = 0;
+    // Only a tap steps one column. A hold has already been scrolled by the loop,
+    // and adding a column on top of it would overshoot by a step every release.
+    if (held && tapped) scrollByColumn(direction);
+  }, [scrollByColumn, stopHold]);
+
+  // A held arrow that is released off the button, or loses the pointer to a
+  // dialog or a row edit, must not keep the loop running.
+  useEffect(() => {
+    const release = () => stopHold();
+    window.addEventListener('pointerup', release);
+    window.addEventListener('pointercancel', release);
+    return () => {
+      window.removeEventListener('pointerup', release);
+      window.removeEventListener('pointercancel', release);
+      stopHold();
+    };
+  }, [stopHold]);
+
   const handleMainScroll = useCallback(() => {
     const main = scrollRef.current;
     const bar = barRef.current;
@@ -977,9 +1060,12 @@ export default function OIGrid({
           {!edges.atStart && (
             <button
               type="button"
-              onClick={() => scrollByColumn(-1)}
+              onPointerDown={(e) => { e.preventDefault(); startHold(-1); }}
+              onPointerUp={() => finishHold(-1)}
+              onPointerLeave={stopHold}
               aria-label="Geser kiri satu kolom"
-              className="pointer-events-auto absolute left-0 top-1/2 -translate-y-1/2 ml-1 flex h-16 w-7 items-center justify-center rounded-lg border border-slate-300 bg-white/85 text-slate-500 shadow-sm backdrop-blur-sm transition hover:bg-white hover:text-slate-800 hover:shadow"
+              title="Klik: satu kolom. Tahan: geser terus."
+              className="pointer-events-auto absolute left-0 top-1/2 -translate-y-1/2 ml-1 flex h-16 w-7 touch-none select-none items-center justify-center rounded-lg border border-slate-300 bg-white/85 text-slate-500 shadow-sm backdrop-blur-sm transition hover:bg-white hover:text-slate-800 hover:shadow active:bg-slate-100"
             >
               <ChevronLeft className="h-5 w-5" />
             </button>
@@ -987,9 +1073,12 @@ export default function OIGrid({
           {!edges.atEnd && (
             <button
               type="button"
-              onClick={() => scrollByColumn(1)}
+              onPointerDown={(e) => { e.preventDefault(); startHold(1); }}
+              onPointerUp={() => finishHold(1)}
+              onPointerLeave={stopHold}
               aria-label="Geser kanan satu kolom"
-              className="pointer-events-auto mr-1 flex h-16 w-7 items-center justify-center rounded-lg border border-slate-300 bg-white/85 text-slate-500 shadow-sm backdrop-blur-sm transition hover:bg-white hover:text-slate-800 hover:shadow"
+              title="Klik: satu kolom. Tahan: geser terus."
+              className="pointer-events-auto mr-1 flex h-16 w-7 touch-none select-none items-center justify-center rounded-lg border border-slate-300 bg-white/85 text-slate-500 shadow-sm backdrop-blur-sm transition hover:bg-white hover:text-slate-800 hover:shadow active:bg-slate-100"
             >
               <ChevronRight className="h-5 w-5" />
             </button>

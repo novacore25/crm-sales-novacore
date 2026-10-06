@@ -418,6 +418,41 @@ Sisa yang ditutup `tsc`, bukan browser: `onClick`-nya terpasang, dan panah
 hilang di ujung yang sudah digeser. Keduanya butuh React benar-benar berjalan,
 yang tidak terjadi di markup statis.
 
+### Tahan tombol panah untuk menggeser jauh
+
+Satu kolom per klik itu benar untuk menyejajarkan kolom, dan tidak berguna untuk
+menyeberangi grid. Jaraknya sekitar 2.000px dengan langkah 80px, jadi kolom paling
+kanan tercapai dalam **26 klik**. Jadi klik tetap satu kolom, dan **menahan
+tombolnya** yang dipinjam untuk perjalanan jauh.
+
+Kecepatan **meningkat**, bukan konstan. Laju konstan justru lebih buruk daripada
+tidak berguna: yang cepat membuat kolom tak terbaca selagi berjalan, dan yang
+lambat adalah 26 klik dengan nama lain. Mulai dari laju yang bisa diikuti lalu
+makin cepat, sehingga bagian lambat adalah tempat berhenti membaca dan bagian
+cepat adalah tempat sekadar lewat.
+
+Loop berhenti di kedua ujung. Menggulir melewati piksel terakhir adalah cara loop
+lepas kendali lalu terus berjalan.
+
+Dua bug ketahuan karena **diukur**, bukan karena dibaca kode:
+
+**Jeda 250ms tidak benar-benar diam.** Versi awal menjepit `ramp` ke nol lalu tetap
+mengalikan dengan laju dasar, jadi ketukan singkat sudah bergerak satu kolom
+sendiri **sebelum** `finishHold` menambahkan kolom kedua - ketukan jadi dua kolom.
+Komentarnya sudah berjanji "tidak bergerak selama jeda" sementara kodenya tidak
+melakukan itu. Sekarang jeda itu `return` lebih awal. Perkalian kecil
+tetap saja bergerak.
+
+**Pemeriksaan tap-nya sendiri tidak menjalankan loop.** Ia hanya menunggu lalu
+mengukur, jadi tidak mungkin menangkap ketukan yang melenceng. Loop sekarang
+dijalankan sepanjang durasi tap yang nyata, dan batas tap diperiksa **sebelum**
+bergerak. Versi pertama mengeceknya setelah bergerak, sehingga untuk tap 60ms
+loop tetap berjalan melewati jeda lalu bergerak: gejalanya persis seperti bug
+yang sedang diuji.
+
+Angka kurvanya dibaca dari source komponen lalu disuntikkan ke tes, jadi tesnya
+tidak bisa melenceng dari kode yang diujinya.
+
 ## Open
 
 Hal-hal yang perlu dilanjutkan.
