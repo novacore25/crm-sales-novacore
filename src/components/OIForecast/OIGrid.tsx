@@ -3,7 +3,7 @@ import { Fragment, useCallback, useEffect, useLayoutEffect, useRef, useState } f
 import type { LeadDTO, OIForecastDTO, ProductOffered, UserProfile } from '@/types';
 import { createOIForecast, deleteOIForecast, setOIForecastStatus, updateOIForecastField } from '@/app/actions/forecast-actions';
 import { getLeadById } from '@/app/actions/lead-actions';
-import { Trash2, Plus } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Trash2, Plus } from 'lucide-react';
 import { toast } from 'sonner';
 import CurrencyInput from '../common/CurrencyInput';
 import StatusModalClient from '../StatusModalClient';
@@ -165,11 +165,33 @@ export default function OIGrid({
   const headRef = useRef<HTMLTableSectionElement>(null);
   const syncing = useRef(false);
   const [tableWidth, setTableWidth] = useState(0);
+  const [colWidth, setColWidth] = useState(0);
+  const [edges, setEdges] = useState({ atStart: true, atEnd: false });
+
+  /*
+   * Scroll by one column.
+   *
+   * A column's own width, measured rather than guessed: the columns are not a
+   * fixed size - Value is wider than T. GMV, and the widest one is a guess about
+   * content that changes. Jumping by the first data column would overshoot the
+   * narrower ones and leave the view between two columns, which is worse than
+   * not moving.
+   */
+  const scrollByColumn = useCallback((direction: 1 | -1) => {
+    const main = scrollRef.current;
+    if (!main) return;
+    main.scrollBy({ left: direction * colWidth, behavior: 'smooth' });
+  }, [colWidth]);
 
   const handleMainScroll = useCallback(() => {
     const main = scrollRef.current;
     const bar = barRef.current;
-    if (!main || !bar || syncing.current) return;
+    if (!main) return;
+
+    const max = main.scrollWidth - main.clientWidth;
+    setEdges({ atStart: main.scrollLeft <= 1, atEnd: main.scrollLeft >= max - 1 });
+
+    if (!bar || syncing.current) return;
     syncing.current = true;
     bar.scrollLeft = main.scrollLeft;
     requestAnimationFrame(() => { syncing.current = false; });
@@ -194,11 +216,13 @@ export default function OIGrid({
       setTableWidth(main.scrollWidth);
 
       const cells = head.querySelectorAll('th');
-      if (cells.length < 3) return;
+      if (cells.length < 4) return;
       const w1 = cells[0]?.offsetWidth ?? 0;
       const w2 = cells[1]?.offsetWidth ?? 0;
       root.style.setProperty('--pin-2', `${w1}px`);
       root.style.setProperty('--pin-3', `${w1 + w2}px`);
+      // A plain data column, not one of the pinned ones, for a one-column step.
+      setColWidth(cells[3]?.offsetWidth ?? 0);
     };
 
     measure();
@@ -930,6 +954,46 @@ export default function OIGrid({
           style={{ scrollbarWidth: 'auto' }}
         >
           <div style={{ width: tableWidth, height: 1 }} />
+        </div>
+
+        {/*
+          One-column arrows, floating over the edges.
+
+          The wrapper is pointer-events-none so the grid underneath stays fully
+          clickable and editable; only the buttons themselves take the pointer.
+          They sit vertically centred and stay clear of the pinned scrollbar at
+          the bottom, and each hides itself at the end it would scroll past.
+
+          The right arrow overlaps the right-most column a little while hovering.
+          That is the trade for not stealing a strip of width from the grid, and a
+          28px button over one cell is a smaller cost than a permanent gutter.
+
+          justify-end, not justify-between. With justify-between and only one
+          arrow present - which is the normal state, since one end is always
+          hidden - the single button goes to the start of the row and the right
+          arrow appears on the left. The left arrow is placed absolutely instead.
+        */}
+        <div className="pointer-events-none absolute inset-y-0 left-0 right-0 flex items-center justify-end">
+          {!edges.atStart && (
+            <button
+              type="button"
+              onClick={() => scrollByColumn(-1)}
+              aria-label="Geser kiri satu kolom"
+              className="pointer-events-auto absolute left-0 top-1/2 -translate-y-1/2 ml-1 flex h-16 w-7 items-center justify-center rounded-lg border border-slate-300 bg-white/85 text-slate-500 shadow-sm backdrop-blur-sm transition hover:bg-white hover:text-slate-800 hover:shadow"
+            >
+              <ChevronLeft className="h-5 w-5" />
+            </button>
+          )}
+          {!edges.atEnd && (
+            <button
+              type="button"
+              onClick={() => scrollByColumn(1)}
+              aria-label="Geser kanan satu kolom"
+              className="pointer-events-auto mr-1 flex h-16 w-7 items-center justify-center rounded-lg border border-slate-300 bg-white/85 text-slate-500 shadow-sm backdrop-blur-sm transition hover:bg-white hover:text-slate-800 hover:shadow"
+            >
+              <ChevronRight className="h-5 w-5" />
+            </button>
+          )}
         </div>
       </div>
 

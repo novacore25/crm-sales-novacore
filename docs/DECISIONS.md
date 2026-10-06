@@ -394,6 +394,30 @@ offset sama sekali**, persis seperti versi yang tidak mengunci apa pun. Yang
 dipakai adalah nilai `left` sesudah digeser. Menguji properti, bukan
 perilaku, adalah cara untuk lolos tanpa benar.
 
+### Panah geser satu kolom
+
+Dua tombol panah melayang di tepi kiri dan kanan grid. Sekali klik, tabel
+**geser tepat satu kolom**, bukan satu layar.
+
+Lebar kolom diambil dari kolom data yang benar-benar ter-render, bukan dari kolom
+pertama. Kolom tidak seragam: `Value` lebih lebar dari `T. GMV`. Kalau melangkah
+sejajar kolom pertama, kolom yang sempit akan terlewati dan tampilan berhenti di
+antara dua kolom - lebih buruk daripada tidak bergerak.
+
+Panah tidak menghalangi data. Lapisan panahnya `pointer-events-none`, jadi hanya
+tombolnya yang menerima klik; mengetuk sel mana pun di dalam grid tetap masuk ke
+grid, bukan ke lapisan panah.
+
+Pengujian menemukan satu bug yang **tidak terlihat kalau hanya Reading kode**:
+lapisan memakai `justify-between`, dan `justify-between` dengan **satu anak**
+menaruh anak itu di **awal** baris. Karena satu ujung selalu disembunyikan, satu
+tombol adalah keadaan normal - jadi panah **kanan muncul di sisi kiri**, hampir
+selalu. Diperbaiki ke `justify-end`, dengan panah kiri diposisikan absolut.
+
+Sisa yang ditutup `tsc`, bukan browser: `onClick`-nya terpasang, dan panah
+hilang di ujung yang sudah digeser. Keduanya butuh React benar-benar berjalan,
+yang tidak terjadi di markup statis.
+
 ## Open
 
 Hal-hal yang perlu dilanjutkan.
