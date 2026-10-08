@@ -1,4 +1,4 @@
-import { eq, notInArray } from 'drizzle-orm';
+import { eq, ilike, notInArray } from 'drizzle-orm';
 
 import { db } from '@/db';
 import { users, type User } from '@/db/schema';
@@ -64,7 +64,8 @@ export function toSessionUser(user: User): SessionUser {
  * auto-registered, and /admin/users then approved.
  */
 export async function findUserByEmail(email: string): Promise<User | null> {
-  const rows = await db.select().from(users).where(eq(users.email, email)).limit(1);
+  const normalized = email.trim().toLowerCase();
+  const rows = await db.select().from(users).where(ilike(users.email, normalized)).limit(1);
   return rows[0] ?? null;
 }
 

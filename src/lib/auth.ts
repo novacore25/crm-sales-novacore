@@ -4,7 +4,7 @@ import { redirect } from 'next/navigation';
 import { auth } from '@/auth';
 import { db } from '@/db';
 import { users } from '@/db/schema';
-import { eq } from 'drizzle-orm';
+import { eq, ilike } from 'drizzle-orm';
 import { can, isLord, isLordOrAdmin, permissionsForRole, type PermissionSet } from './permissions';
 import type { UserProfile } from './auth-users';
 import { toProfile } from './auth-users';
@@ -29,7 +29,8 @@ export const getCurrentUser = cache(async () => {
   const email = session?.user?.email;
   if (!email) return null;
 
-  const rows = await db.select().from(users).where(eq(users.email, email)).limit(1);
+  const normalized = email.trim().toLowerCase();
+  const rows = await db.select().from(users).where(ilike(users.email, normalized)).limit(1);
   return rows[0] ?? null;
 });
 

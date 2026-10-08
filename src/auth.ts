@@ -74,7 +74,7 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
     async session({ session, user }) {
       if (session.user) {
         const row = user?.id
-          ? await findUserByIdCached(user.id)
+          ? await findUserById(user.id)
           : session.user.email
             ? await findUserByEmail(session.user.email)
             : null;
@@ -106,16 +106,3 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
   trustHost: true,
   secret: process.env.AUTH_SECRET,
 });
-
-/** Small memo so the session callback does not re-query on every render. */
-const cache = new Map<string, { id: string; name: string; role: string }>();
-
-async function findUserByIdCached(id: string) {
-  const hit = cache.get(id);
-  if (hit) return hit;
-  const row = await findUserById(id);
-  if (row) {
-    cache.set(id, { id: row.id, name: row.name, role: row.role });
-  }
-  return row;
-}

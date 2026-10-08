@@ -1,7 +1,8 @@
 'use client';
 
+import { useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { LogOut, UserCircle } from 'lucide-react';
+import { LogOut, UserCircle, RefreshCw, Clock } from 'lucide-react';
 
 import { logout } from '@/app/actions/auth-actions';
 
@@ -16,6 +17,15 @@ import { logout } from '@/app/actions/auth-actions';
  */
 export default function PendingScreen({ email, name }: { email: string; name: string }) {
   const router = useRouter();
+  const [checking, setChecking] = useState(false);
+
+  const handleCheckStatus = () => {
+    setChecking(true);
+    router.refresh();
+    setTimeout(() => {
+      setChecking(false);
+    }, 1200);
+  };
 
   const handleLogout = async () => {
     await logout();
@@ -38,26 +48,34 @@ export default function PendingScreen({ email, name }: { email: string; name: st
           {email}
         </p>
 
-        <div className="bg-amber-50 border border-amber-200 rounded-2xl p-5 mb-8 text-left">
+        <div className="bg-amber-50 border border-amber-200 rounded-2xl p-5 mb-6 text-left">
           <h2 className="text-sm font-black text-amber-800 mb-2 flex items-center gap-2">
-            <span className="relative flex h-3 w-3">
-              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-75" />
-              <span className="relative inline-flex rounded-full h-3 w-3 bg-amber-500" />
-            </span>
-            Menunggu Persetujuan
+            <Clock className="w-4 h-4 text-amber-600" />
+            Menunggu Persetujuan Admin
           </h2>
           <p className="text-xs font-medium text-amber-700/80 leading-relaxed">
             Akun Anda telah berhasil terdaftar, namun saat ini sedang menunggu persetujuan dari
-            Administrator. Silakan hubungi Admin untuk segera mengaktifkan akses Anda.
+            Administrator. Silakan hubungi Admin untuk segera mengaktifkan akses Anda (Staff / Admin).
           </p>
         </div>
 
-        <button
-          onClick={handleLogout}
-          className="w-full flex items-center justify-center gap-2 py-3 px-4 bg-slate-900 hover:bg-slate-800 text-white rounded-xl font-bold transition-all shadow-lg shadow-slate-200"
-        >
-          <LogOut className="w-4 h-4" /> Keluar (Logout)
-        </button>
+        <div className="space-y-3">
+          <button
+            onClick={handleCheckStatus}
+            disabled={checking}
+            className="w-full flex items-center justify-center gap-2 py-3 px-4 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl font-bold transition-all shadow-lg shadow-indigo-100 active:scale-95 disabled:opacity-75"
+          >
+            <RefreshCw className={`w-4 h-4 ${checking ? 'animate-spin' : ''}`} />
+            {checking ? 'Memeriksa Akses...' : 'Periksa Status Akses'}
+          </button>
+
+          <button
+            onClick={handleLogout}
+            className="w-full flex items-center justify-center gap-2 py-3 px-4 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl font-bold transition-all"
+          >
+            <LogOut className="w-4 h-4" /> Keluar (Logout)
+          </button>
+        </div>
       </div>
     </div>
   );
