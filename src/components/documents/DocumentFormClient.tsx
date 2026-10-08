@@ -2,7 +2,21 @@
 
 import { useCallback, useEffect, useMemo, useState, useTransition } from 'react';
 import { useRouter } from 'next/navigation';
-import { ArrowLeft, Plus, Save, Trash2, Eye, Printer } from 'lucide-react';
+import {
+  ArrowLeft,
+  Plus,
+  Save,
+  Trash2,
+  Eye,
+  Printer,
+  Bold,
+  Italic,
+  List,
+  ListOrdered,
+  AlignLeft,
+  AlignCenter,
+  AlignRight,
+} from 'lucide-react';
 import { toast } from 'sonner';
 import {
   createDocument,
@@ -594,13 +608,166 @@ export default function DocumentFormClient({ seed }: { seed?: DocumentFormSeed }
                   </button>
                 </div>
 
-                <textarea
-                  value={item.description}
-                  onChange={(e) => setItem(idx, { description: e.target.value })}
-                  rows={5}
-                  placeholder={'Rincian, satu baris per poin:\n1.500 creators (VT Concept & Quantity)\nUpload 1.500 VT with Yellow Cart\nTier Creator'}
-                  className="w-full px-3 py-2 border border-slate-200 rounded-lg text-[11px] text-slate-600 outline-none focus:ring-2 focus:ring-indigo-500 leading-relaxed resize-y"
-                />
+                {/* Formatting Toolbar */}
+                <div className="space-y-1">
+                  <div className="flex items-center justify-between">
+                    <span className="text-[10px] font-black uppercase tracking-widest text-slate-400">
+                      Rincian / Details
+                    </span>
+                    <div className="flex items-center gap-0.5 bg-slate-100 p-0.5 rounded-lg border border-slate-200">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const textarea = document.getElementById(`item-desc-${idx}`) as HTMLTextAreaElement | null;
+                          if (!textarea) return;
+                          const start = textarea.selectionStart;
+                          const end = textarea.selectionEnd;
+                          const val = item.description || '';
+                          const selected = val.substring(start, end) || 'teks tebal';
+                          const next = val.substring(0, start) + `*${selected}*` + val.substring(end);
+                          setItem(idx, { description: next });
+                        }}
+                        className="p-1 text-slate-600 hover:text-slate-900 hover:bg-white rounded transition"
+                        title="Tebal / Bold (*teks*)"
+                      >
+                        <Bold className="w-3.5 h-3.5" />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const textarea = document.getElementById(`item-desc-${idx}`) as HTMLTextAreaElement | null;
+                          if (!textarea) return;
+                          const start = textarea.selectionStart;
+                          const end = textarea.selectionEnd;
+                          const val = item.description || '';
+                          const selected = val.substring(start, end) || 'teks miring';
+                          const next = val.substring(0, start) + `_${selected}_` + val.substring(end);
+                          setItem(idx, { description: next });
+                        }}
+                        className="p-1 text-slate-600 hover:text-slate-900 hover:bg-white rounded transition"
+                        title="Miring / Italic (_teks_)"
+                      >
+                        <Italic className="w-3.5 h-3.5" />
+                      </button>
+
+                      <div className="w-px h-3 bg-slate-300 mx-0.5" />
+
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const textarea = document.getElementById(`item-desc-${idx}`) as HTMLTextAreaElement | null;
+                          if (!textarea) return;
+                          const start = textarea.selectionStart;
+                          const end = textarea.selectionEnd;
+                          const val = item.description || '';
+                          const selected = val.substring(start, end);
+                          if (selected) {
+                            const lines = selected.split('\n').map((l) => (l.startsWith('• ') ? l : `• ${l}`)).join('\n');
+                            setItem(idx, { description: val.substring(0, start) + lines + val.substring(end) });
+                          } else {
+                            const next = val ? `${val}\n• ` : '• ';
+                            setItem(idx, { description: next });
+                          }
+                        }}
+                        className="p-1 text-slate-600 hover:text-slate-900 hover:bg-white rounded transition"
+                        title="Bullet List (• )"
+                      >
+                        <List className="w-3.5 h-3.5" />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const textarea = document.getElementById(`item-desc-${idx}`) as HTMLTextAreaElement | null;
+                          if (!textarea) return;
+                          const start = textarea.selectionStart;
+                          const end = textarea.selectionEnd;
+                          const val = item.description || '';
+                          const selected = val.substring(start, end);
+                          if (selected) {
+                            const lines = selected
+                              .split('\n')
+                              .map((l, i) => (/^\d+[\.\)]\s*/.test(l) ? l : `${i + 1}. ${l}`))
+                              .join('\n');
+                            setItem(idx, { description: val.substring(0, start) + lines + val.substring(end) });
+                          } else {
+                            const next = val ? `${val}\n1. ` : '1. ';
+                            setItem(idx, { description: next });
+                          }
+                        }}
+                        className="p-1 text-slate-600 hover:text-slate-900 hover:bg-white rounded transition"
+                        title="Numbered List (1. )"
+                      >
+                        <ListOrdered className="w-3.5 h-3.5" />
+                      </button>
+
+                      <div className="w-px h-3 bg-slate-300 mx-0.5" />
+
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const textarea = document.getElementById(`item-desc-${idx}`) as HTMLTextAreaElement | null;
+                          if (!textarea) return;
+                          const start = textarea.selectionStart;
+                          const end = textarea.selectionEnd;
+                          const val = item.description || '';
+                          const selected = val.substring(start, end) || 'Teks rata kiri';
+                          const cleaned = selected.replace(/\[\/?(center|right|left)\]/gi, '');
+                          const next = val.substring(0, start) + `[left]${cleaned}[/left]` + val.substring(end);
+                          setItem(idx, { description: next });
+                        }}
+                        className="p-1 text-slate-600 hover:text-slate-900 hover:bg-white rounded transition"
+                        title="Rata Kiri ([left]...[/left])"
+                      >
+                        <AlignLeft className="w-3.5 h-3.5" />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const textarea = document.getElementById(`item-desc-${idx}`) as HTMLTextAreaElement | null;
+                          if (!textarea) return;
+                          const start = textarea.selectionStart;
+                          const end = textarea.selectionEnd;
+                          const val = item.description || '';
+                          const selected = val.substring(start, end) || 'Teks rata tengah';
+                          const cleaned = selected.replace(/\[\/?(center|right|left)\]/gi, '');
+                          const next = val.substring(0, start) + `[center]${cleaned}[/center]` + val.substring(end);
+                          setItem(idx, { description: next });
+                        }}
+                        className="p-1 text-slate-600 hover:text-slate-900 hover:bg-white rounded transition"
+                        title="Rata Tengah ([center]...[/center])"
+                      >
+                        <AlignCenter className="w-3.5 h-3.5" />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const textarea = document.getElementById(`item-desc-${idx}`) as HTMLTextAreaElement | null;
+                          if (!textarea) return;
+                          const start = textarea.selectionStart;
+                          const end = textarea.selectionEnd;
+                          const val = item.description || '';
+                          const selected = val.substring(start, end) || 'Teks rata kanan';
+                          const cleaned = selected.replace(/\[\/?(center|right|left)\]/gi, '');
+                          const next = val.substring(0, start) + `[right]${cleaned}[/right]` + val.substring(end);
+                          setItem(idx, { description: next });
+                        }}
+                        className="p-1 text-slate-600 hover:text-slate-900 hover:bg-white rounded transition"
+                        title="Rata Kanan ([right]...[/right])"
+                      >
+                        <AlignRight className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                  </div>
+
+                  <textarea
+                    id={`item-desc-${idx}`}
+                    value={item.description}
+                    onChange={(e) => setItem(idx, { description: e.target.value })}
+                    rows={5}
+                    placeholder={'Rincian deliverables:\n1. 400 Creator Level 1\n2. 125 Creator Level 2\n• Upload 850 Video with Yellow Cart\n[center]Notes tambahan[/center]'}
+                    className="w-full px-3 py-2 border border-slate-200 rounded-lg text-[11px] text-slate-600 outline-none focus:ring-2 focus:ring-indigo-500 leading-relaxed resize-y font-mono"
+                  />
+                </div>
 
                 <div className="grid grid-cols-2 gap-3">
                   <label className="block">

@@ -93,30 +93,123 @@ function formatDate(iso: string | null, lang: 'en' | 'id' | 'id-caps'): string {
 }
 
 /**
- * Descriptions are free-form and multi-line, because every deal is described
- * differently. Newlines are preserved. A leading dash becomes a real list
- * item so a wrapped line aligns under the text rather than under the dot.
+ * Render inline markdown styles: **bold**, *bold*, _italic_.
  */
-function Description({ text }: { text: string | null | undefined }) {
+function renderInlineFormatted(text: string) {
+  // Split by markdown bold (**text** or *text*) and italic (_text_)
+  const parts: (string | React.ReactNode)[] = [];
+  // Tokenize regex
+  const regex = /(\*\*[^*]+\*\*|\*[^*]+\*|_[^_]+_)/g;
+  let lastIndex = 0;
+  let match;
+
+  while ((match = regex.exec(text)) !== null) {
+    if (match.index > lastIndex) {
+      parts.push(text.slice(lastIndex, match.index));
+    }
+    const token = match[0];
+    if (token.startsWith('**') && token.endsWith('**')) {
+      parts.push(<strong key={match.index} className="font-bold text-slate-800">{token.slice(2, -2)}</strong>);
+    } else if (token.startsWith('*') && token.endsWith('*')) {
+      parts.push(<strong key={match.index} className="font-bold text-slate-800">{token.slice(1, -1)}</strong>);
+    } else if (token.startsWith('_') && token.endsWith('_')) {
+      parts.push(<em key={match.index} className="italic">{token.slice(1, -1)}</em>);
+    }
+    lastIndex = regex.lastIndex;
+  }
+  if (lastIndex < text.length) {
+    parts.push(text.slice(lastIndex));
+  }
+  return parts.length > 0 ? parts : text;
+}
+
+/**
+ * Rich description renderer supporting lists, inline bold/italic, and [center]/[right]/[left] alignments.
+ */
+function RichDescription({
+  text,
+  defaultAlign = 'left',
+  textColor = 'text-slate-600',
+}: {
+  text: string | null | undefined;
+  defaultAlign?: 'left' | 'center' | 'right';
+  textColor?: string;
+}) {
   if (!text?.trim()) return null;
+
   return (
-    <div className="text-[10px] leading-[1.5] text-slate-600 whitespace-pre-wrap break-words">
+    <div className={`text-[10px] leading-[1.5] ${textColor} whitespace-pre-wrap break-words space-y-0.5`}>
       {text.split(/\r?\n/).map((line, i) => {
-        const t = line.trim();
+        let t = line.trim();
         if (!t) return <div key={i} className="h-1" />;
-        const m = /^[-*•]\s*(.*)$/.exec(t);
-        if (m) {
+
+        // Check alignment tags [center], [right], [left]
+        let align = defaultAlign;
+        const centerMatch = /^\[center\](.*?)(\[\/center\])?$/i.exec(t);
+        const rightMatch = /^\[right\](.*?)(\[\/right\])?$/i.exec(t);
+        const leftMatch = /^\[left\](.*?)(\[\/left\])?$/i.exec(t);
+
+        if (centerMatch) {
+          align = 'center';
+          t = centerMatch[1].trim();
+        } else if (rightMatch) {
+          align = 'right';
+          t = rightMatch[1].trim();
+        } else if (leftMatch) {
+          align = 'left';
+          t = leftMatch[1].trim();
+        }
+
+        // Check Numbered List e.g. "1. ", "2) ", "10. "
+        const numMatch = /^(\d+[\.\)])\s*(.*)$/.exec(t);
+        if (numMatch) {
           return (
-            <div key={i} className="flex gap-1.5 print:break-inside-avoid">
-              <span className="shrink-0">&bull;</span>
-              <span className="min-w-0">{m[1]}</span>
+            <div
+              key={i}
+              className={`flex gap-1.5 print:break-inside-avoid ${
+                align === 'center' ? 'justify-center text-center' : align === 'right' ? 'justify-end text-right' : 'text-left'
+              }`}
+            >
+              <span className="shrink-0 font-bold tabular-nums">{numMatch[1]}</span>
+              <span className="min-w-0">{renderInlineFormatted(numMatch[2])}</span>
             </div>
           );
         }
-        return <div key={i} className="print:break-inside-avoid">{t}</div>;
+
+        // Check Bullet List e.g. "- ", "* ", "• "
+        const bulletMatch = /^[-*•]\s*(.*)$/.exec(t);
+        if (bulletMatch) {
+          return (
+            <div
+              key={i}
+              className={`flex gap-1.5 print:break-inside-avoid ${
+                align === 'center' ? 'justify-center text-center' : align === 'right' ? 'justify-end text-right' : 'text-left'
+              }`}
+            >
+              <span className="shrink-0 font-bold">&bull;</span>
+              <span className="min-w-0">{renderInlineFormatted(bulletMatch[1])}</span>
+            </div>
+          );
+        }
+
+        // Plain line
+        return (
+          <div
+            key={i}
+            className={`print:break-inside-avoid ${
+              align === 'center' ? 'text-center' : align === 'right' ? 'text-right' : 'text-left'
+            }`}
+          >
+            {renderInlineFormatted(t)}
+          </div>
+        );
       })}
     </div>
   );
+}
+
+function Description({ text }: { text: string | null | undefined }) {
+  return <RichDescription text={text} defaultAlign="left" />;
 }
 
 function Terms({ text }: { text: string | null | undefined }) {
@@ -712,11 +805,11 @@ function HypeTemplate({ doc }: { doc: PreviewDoc }) {
                 {it.title}
               </td>
               <td
-                className="px-3 text-center align-middle"
-                style={{ borderLeft: '1px solid #000', padding: '9mm 3mm' }}
+                className="px-3 align-middle"
+                style={{ borderLeft: '1px solid #000', padding: '6mm 4mm' }}
               >
-                <div style={{ maxWidth: '46mm', margin: '0 auto' }}>
-                  <CentredDescription text={it.description} />
+                <div style={{ maxWidth: '68mm', margin: '0 auto' }}>
+                  <RichDescription text={it.description} defaultAlign="left" textColor="text-slate-800" />
                 </div>
               </td>
               <td
