@@ -428,7 +428,7 @@ function TntTemplate({ doc }: { doc: PreviewDoc }) {
       {/* items. The paper separates the columns with hairlines and leaves the
           description cell open, so the column edges carry the grid rather than a
           box around every cell. */}
-      <table className="w-full border-collapse text-[9.5px]">
+      <table className="w-full border-collapse text-[9.5px] border-x border-slate-300">
         <thead>
           <tr className="bg-slate-800 text-white print:break-after-avoid">
             <th className="px-2 py-1.5 text-left w-8">No</th>
