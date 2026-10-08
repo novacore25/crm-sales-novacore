@@ -16,6 +16,7 @@ import {
   AlignLeft,
   AlignCenter,
   AlignRight,
+  Undo2,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import {
@@ -615,6 +616,25 @@ export default function DocumentFormClient({ seed }: { seed?: DocumentFormSeed }
                       Rincian / Details
                     </span>
                     <div className="flex items-center gap-0.5 bg-slate-100 p-0.5 rounded-lg border border-slate-200">
+                      {/* Undo Button */}
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const textarea = document.getElementById(`item-desc-${idx}`) as HTMLTextAreaElement | null;
+                          if (textarea) {
+                            textarea.focus();
+                            document.execCommand('undo');
+                          }
+                        }}
+                        className="p-1 text-slate-600 hover:text-slate-900 hover:bg-white rounded transition"
+                        title="Undo (Ctrl+Z)"
+                      >
+                        <Undo2 className="w-3.5 h-3.5" />
+                      </button>
+
+                      <div className="w-px h-3 bg-slate-300 mx-0.5" />
+
+                      {/* Bold Button (Toggle) */}
                       <button
                         type="button"
                         onClick={() => {
@@ -623,15 +643,29 @@ export default function DocumentFormClient({ seed }: { seed?: DocumentFormSeed }
                           const start = textarea.selectionStart;
                           const end = textarea.selectionEnd;
                           const val = item.description || '';
-                          const selected = val.substring(start, end) || 'teks tebal';
-                          const next = val.substring(0, start) + `*${selected}*` + val.substring(end);
-                          setItem(idx, { description: next });
+                          const selected = val.substring(start, end);
+                          if (!selected) {
+                            setItem(idx, { description: val + '*teks tebal*' });
+                            return;
+                          }
+                          // If already bold (*text* or **text**), remove bold
+                          if (
+                            (selected.startsWith('**') && selected.endsWith('**')) ||
+                            (selected.startsWith('*') && selected.endsWith('*'))
+                          ) {
+                            const unbold = selected.replace(/^\*{1,2}/, '').replace(/\*{1,2}$/, '');
+                            setItem(idx, { description: val.substring(0, start) + unbold + val.substring(end) });
+                          } else {
+                            setItem(idx, { description: val.substring(0, start) + `*${selected}*` + val.substring(end) });
+                          }
                         }}
                         className="p-1 text-slate-600 hover:text-slate-900 hover:bg-white rounded transition"
-                        title="Tebal / Bold (*teks*)"
+                        title="Tebal / Bold (Klik lagi untuk batal)"
                       >
                         <Bold className="w-3.5 h-3.5" />
                       </button>
+
+                      {/* Italic Button (Toggle) */}
                       <button
                         type="button"
                         onClick={() => {
@@ -640,18 +674,28 @@ export default function DocumentFormClient({ seed }: { seed?: DocumentFormSeed }
                           const start = textarea.selectionStart;
                           const end = textarea.selectionEnd;
                           const val = item.description || '';
-                          const selected = val.substring(start, end) || 'teks miring';
-                          const next = val.substring(0, start) + `_${selected}_` + val.substring(end);
-                          setItem(idx, { description: next });
+                          const selected = val.substring(start, end);
+                          if (!selected) {
+                            setItem(idx, { description: val + '_teks miring_' });
+                            return;
+                          }
+                          // If already italic (_text_), remove italic
+                          if (selected.startsWith('_') && selected.endsWith('_')) {
+                            const unitalic = selected.slice(1, -1);
+                            setItem(idx, { description: val.substring(0, start) + unitalic + val.substring(end) });
+                          } else {
+                            setItem(idx, { description: val.substring(0, start) + `_${selected}_` + val.substring(end) });
+                          }
                         }}
                         className="p-1 text-slate-600 hover:text-slate-900 hover:bg-white rounded transition"
-                        title="Miring / Italic (_teks_)"
+                        title="Miring / Italic (Klik lagi untuk batal)"
                       >
                         <Italic className="w-3.5 h-3.5" />
                       </button>
 
                       <div className="w-px h-3 bg-slate-300 mx-0.5" />
 
+                      {/* Bullet List (Toggle) */}
                       <button
                         type="button"
                         onClick={() => {
@@ -662,18 +706,24 @@ export default function DocumentFormClient({ seed }: { seed?: DocumentFormSeed }
                           const val = item.description || '';
                           const selected = val.substring(start, end);
                           if (selected) {
-                            const lines = selected.split('\n').map((l) => (l.startsWith('• ') ? l : `• ${l}`)).join('\n');
-                            setItem(idx, { description: val.substring(0, start) + lines + val.substring(end) });
+                            const lines = selected.split('\n');
+                            const allBulleted = lines.every((l) => /^[-*•]\s*/.test(l.trim()));
+                            const toggled = lines
+                              .map((l) => (allBulleted ? l.replace(/^[-*•]\s*/, '') : `• ${l.replace(/^[-*•]\s*/, '')}`))
+                              .join('\n');
+                            setItem(idx, { description: val.substring(0, start) + toggled + val.substring(end) });
                           } else {
                             const next = val ? `${val}\n• ` : '• ';
                             setItem(idx, { description: next });
                           }
                         }}
                         className="p-1 text-slate-600 hover:text-slate-900 hover:bg-white rounded transition"
-                        title="Bullet List (• )"
+                        title="Bullet List (Klik lagi untuk batal)"
                       >
                         <List className="w-3.5 h-3.5" />
                       </button>
+
+                      {/* Numbered List (Toggle) */}
                       <button
                         type="button"
                         onClick={() => {
@@ -684,24 +734,28 @@ export default function DocumentFormClient({ seed }: { seed?: DocumentFormSeed }
                           const val = item.description || '';
                           const selected = val.substring(start, end);
                           if (selected) {
-                            const lines = selected
-                              .split('\n')
-                              .map((l, i) => (/^\d+[\.\)]\s*/.test(l) ? l : `${i + 1}. ${l}`))
+                            const lines = selected.split('\n');
+                            const allNumbered = lines.every((l) => /^\d+[\.\)]\s*/.test(l.trim()));
+                            const toggled = lines
+                              .map((l, i) =>
+                                allNumbered ? l.replace(/^\d+[\.\)]\s*/, '') : `${i + 1}. ${l.replace(/^\d+[\.\)]\s*/, '')}`,
+                              )
                               .join('\n');
-                            setItem(idx, { description: val.substring(0, start) + lines + val.substring(end) });
+                            setItem(idx, { description: val.substring(0, start) + toggled + val.substring(end) });
                           } else {
                             const next = val ? `${val}\n1. ` : '1. ';
                             setItem(idx, { description: next });
                           }
                         }}
                         className="p-1 text-slate-600 hover:text-slate-900 hover:bg-white rounded transition"
-                        title="Numbered List (1. )"
+                        title="Numbered List (Klik lagi untuk batal)"
                       >
                         <ListOrdered className="w-3.5 h-3.5" />
                       </button>
 
                       <div className="w-px h-3 bg-slate-300 mx-0.5" />
 
+                      {/* Align Left (Toggle) */}
                       <button
                         type="button"
                         onClick={() => {
@@ -714,18 +768,22 @@ export default function DocumentFormClient({ seed }: { seed?: DocumentFormSeed }
                           const formatted = selected
                             .split('\n')
                             .map((line) => {
+                              const isLeft = /\[left\]([\s\S]*?)\[\/left\]/i.test(line);
                               const cleaned = line.replace(/\[\/?(center|right|left)\]/gi, '').trim();
-                              return cleaned ? `[left]${cleaned}[/left]` : '';
+                              if (!cleaned) return '';
+                              return isLeft ? cleaned : `[left]${cleaned}[/left]`;
                             })
                             .join('\n');
                           const next = val.substring(0, start) + formatted + val.substring(end);
                           setItem(idx, { description: next });
                         }}
                         className="p-1 text-slate-600 hover:text-slate-900 hover:bg-white rounded transition"
-                        title="Rata Kiri ([left]...[/left])"
+                        title="Rata Kiri (Klik lagi untuk batal)"
                       >
                         <AlignLeft className="w-3.5 h-3.5" />
                       </button>
+
+                      {/* Align Center (Toggle) */}
                       <button
                         type="button"
                         onClick={() => {
@@ -738,18 +796,22 @@ export default function DocumentFormClient({ seed }: { seed?: DocumentFormSeed }
                           const formatted = selected
                             .split('\n')
                             .map((line) => {
+                              const isCenter = /\[center\]([\s\S]*?)\[\/center\]/i.test(line);
                               const cleaned = line.replace(/\[\/?(center|right|left)\]/gi, '').trim();
-                              return cleaned ? `[center]${cleaned}[/center]` : '';
+                              if (!cleaned) return '';
+                              return isCenter ? cleaned : `[center]${cleaned}[/center]`;
                             })
                             .join('\n');
                           const next = val.substring(0, start) + formatted + val.substring(end);
                           setItem(idx, { description: next });
                         }}
                         className="p-1 text-slate-600 hover:text-slate-900 hover:bg-white rounded transition"
-                        title="Rata Tengah ([center]...[/center])"
+                        title="Rata Tengah (Klik lagi untuk batal)"
                       >
                         <AlignCenter className="w-3.5 h-3.5" />
                       </button>
+
+                      {/* Align Right (Toggle) */}
                       <button
                         type="button"
                         onClick={() => {
@@ -762,15 +824,17 @@ export default function DocumentFormClient({ seed }: { seed?: DocumentFormSeed }
                           const formatted = selected
                             .split('\n')
                             .map((line) => {
+                              const isRight = /\[right\]([\s\S]*?)\[\/right\]/i.test(line);
                               const cleaned = line.replace(/\[\/?(center|right|left)\]/gi, '').trim();
-                              return cleaned ? `[right]${cleaned}[/right]` : '';
+                              if (!cleaned) return '';
+                              return isRight ? cleaned : `[right]${cleaned}[/right]`;
                             })
                             .join('\n');
                           const next = val.substring(0, start) + formatted + val.substring(end);
                           setItem(idx, { description: next });
                         }}
                         className="p-1 text-slate-600 hover:text-slate-900 hover:bg-white rounded transition"
-                        title="Rata Kanan ([right]...[/right])"
+                        title="Rata Kanan (Klik lagi untuk batal)"
                       >
                         <AlignRight className="w-3.5 h-3.5" />
                       </button>
