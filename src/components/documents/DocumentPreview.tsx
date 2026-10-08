@@ -100,7 +100,7 @@ function formatDate(iso: string | null, lang: 'en' | 'id' | 'id-caps'): string {
 function Description({ text }: { text: string | null | undefined }) {
   if (!text?.trim()) return null;
   return (
-    <div className="text-[9.5px] leading-[1.5] text-slate-600 whitespace-pre-wrap break-words">
+    <div className="text-[10px] leading-[1.5] text-slate-600 whitespace-pre-wrap break-words">
       {text.split(/\r?\n/).map((line, i) => {
         const t = line.trim();
         if (!t) return <div key={i} className="h-1" />;
@@ -428,7 +428,7 @@ function TntTemplate({ doc }: { doc: PreviewDoc }) {
       {/* items. The paper separates the columns with hairlines and leaves the
           description cell open, so the column edges carry the grid rather than a
           box around every cell. */}
-      <table className="w-full border-collapse text-[9.5px] border-x border-slate-300">
+      <table className="w-full border-collapse text-[10px] border-x border-slate-300">
         <thead>
           <tr className="bg-slate-800 text-white print:break-after-avoid">
             <th className="px-2 py-1.5 text-left w-8">No</th>
@@ -454,13 +454,13 @@ function TntTemplate({ doc }: { doc: PreviewDoc }) {
                   451.8, and the price baseline block centres on 447.2. So the
                   paper centres them; align-top and text-right both read as a
                   spreadsheet rather than a quotation. */}
-              <td className="px-2 py-2.5 text-center align-middle font-black tabular-nums whitespace-nowrap border-l border-slate-300">
+              <td className="px-2 py-2.5 text-center align-middle font-black tabular-nums whitespace-nowrap text-[10px] border-l border-slate-300">
                 {rupiah(it.price)}
               </td>
-              <td className="px-2 py-2.5 text-center align-middle font-black tabular-nums whitespace-nowrap border-l border-slate-300">
+              <td className="px-2 py-2.5 text-center align-middle font-black tabular-nums whitespace-nowrap text-[10px] border-l border-slate-300">
                 {it.period || '-'}
               </td>
-              <td className="px-2 py-2.5 text-center align-middle font-black tabular-nums whitespace-nowrap border-l border-slate-300">
+              <td className="px-2 py-2.5 text-center align-middle font-black tabular-nums whitespace-nowrap text-[10px] border-l border-slate-300">
                 {rupiah(it.price)}
               </td>
             </tr>
@@ -603,10 +603,8 @@ const LIME = '#C3E800';
 function HypeTemplate({ doc }: { doc: PreviewDoc }) {
   const isInvoice = doc.docType === 'INVOICE';
 
-  // Measured off the two PDFs, as a share of the table's width.
-  const columns = isInvoice
-    ? { pkg: '17%', details: '48%', period: '15%', total: '21%' }
-    : { pkg: '17%', details: '30%', period: '12%', total: '42%' };
+  // Unified column proportions for both Quotation and Invoice so layout stays identical and neat.
+  const columns = { pkg: '17%', details: '47%', period: '15%', total: '21%' };
 
   return (
     <Sheet
