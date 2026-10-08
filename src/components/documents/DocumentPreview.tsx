@@ -137,28 +137,53 @@ function RichDescription({
 }) {
   if (!text?.trim()) return null;
 
+  // Normalize text: handle multi-line [center]...[/center], [right]...[/right], [left]...[/left]
+  // by pushing alignment down to each enclosed line.
+  let processed = text
+    .replace(/\[center\]([\s\S]*?)\[\/center\]/gi, (_, inner) =>
+      inner
+        .split(/\r?\n/)
+        .map((l: string) => (l.trim() ? `[center]${l.trim()}[/center]` : ''))
+        .join('\n'),
+    )
+    .replace(/\[right\]([\s\S]*?)\[\/right\]/gi, (_, inner) =>
+      inner
+        .split(/\r?\n/)
+        .map((l: string) => (l.trim() ? `[right]${l.trim()}[/right]` : ''))
+        .join('\n'),
+    )
+    .replace(/\[left\]([\s\S]*?)\[\/left\]/gi, (_, inner) =>
+      inner
+        .split(/\r?\n/)
+        .map((l: string) => (l.trim() ? `[left]${l.trim()}[/left]` : ''))
+        .join('\n'),
+    );
+
   return (
     <div className={`text-[10px] leading-[1.5] ${textColor} whitespace-pre-wrap break-words space-y-0.5`}>
-      {text.split(/\r?\n/).map((line, i) => {
+      {processed.split(/\r?\n/).map((line, i) => {
         let t = line.trim();
         if (!t) return <div key={i} className="h-1" />;
 
         // Check alignment tags [center], [right], [left]
         let align = defaultAlign;
-        const centerMatch = /^\[center\](.*?)(\[\/center\])?$/i.exec(t);
-        const rightMatch = /^\[right\](.*?)(\[\/right\])?$/i.exec(t);
-        const leftMatch = /^\[left\](.*?)(\[\/left\])?$/i.exec(t);
+        const centerMatch = /^\[center\]([\s\S]*?)(\[\/center\])?$/i.exec(t);
+        const rightMatch = /^\[right\]([\s\S]*?)(\[\/right\])?$/i.exec(t);
+        const leftMatch = /^\[left\]([\s\S]*?)(\[\/left\])?$/i.exec(t);
 
         if (centerMatch) {
           align = 'center';
-          t = centerMatch[1].trim();
+          t = centerMatch[1].replace(/\[\/?center\]/gi, '').trim();
         } else if (rightMatch) {
           align = 'right';
-          t = rightMatch[1].trim();
+          t = rightMatch[1].replace(/\[\/?right\]/gi, '').trim();
         } else if (leftMatch) {
           align = 'left';
-          t = leftMatch[1].trim();
+          t = leftMatch[1].replace(/\[\/?left\]/gi, '').trim();
         }
+
+        // Clean any stray tags just in case
+        t = t.replace(/\[\/?(center|right|left)\]/gi, '').trim();
 
         // Check Numbered List e.g. "1. ", "2) ", "10. "
         const numMatch = /^(\d+[\.\)])\s*(.*)$/.exec(t);

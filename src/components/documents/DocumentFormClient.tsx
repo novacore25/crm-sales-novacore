@@ -711,8 +711,14 @@ export default function DocumentFormClient({ seed }: { seed?: DocumentFormSeed }
                           const end = textarea.selectionEnd;
                           const val = item.description || '';
                           const selected = val.substring(start, end) || 'Teks rata kiri';
-                          const cleaned = selected.replace(/\[\/?(center|right|left)\]/gi, '');
-                          const next = val.substring(0, start) + `[left]${cleaned}[/left]` + val.substring(end);
+                          const formatted = selected
+                            .split('\n')
+                            .map((line) => {
+                              const cleaned = line.replace(/\[\/?(center|right|left)\]/gi, '').trim();
+                              return cleaned ? `[left]${cleaned}[/left]` : '';
+                            })
+                            .join('\n');
+                          const next = val.substring(0, start) + formatted + val.substring(end);
                           setItem(idx, { description: next });
                         }}
                         className="p-1 text-slate-600 hover:text-slate-900 hover:bg-white rounded transition"
@@ -729,8 +735,14 @@ export default function DocumentFormClient({ seed }: { seed?: DocumentFormSeed }
                           const end = textarea.selectionEnd;
                           const val = item.description || '';
                           const selected = val.substring(start, end) || 'Teks rata tengah';
-                          const cleaned = selected.replace(/\[\/?(center|right|left)\]/gi, '');
-                          const next = val.substring(0, start) + `[center]${cleaned}[/center]` + val.substring(end);
+                          const formatted = selected
+                            .split('\n')
+                            .map((line) => {
+                              const cleaned = line.replace(/\[\/?(center|right|left)\]/gi, '').trim();
+                              return cleaned ? `[center]${cleaned}[/center]` : '';
+                            })
+                            .join('\n');
+                          const next = val.substring(0, start) + formatted + val.substring(end);
                           setItem(idx, { description: next });
                         }}
                         className="p-1 text-slate-600 hover:text-slate-900 hover:bg-white rounded transition"
@@ -747,8 +759,14 @@ export default function DocumentFormClient({ seed }: { seed?: DocumentFormSeed }
                           const end = textarea.selectionEnd;
                           const val = item.description || '';
                           const selected = val.substring(start, end) || 'Teks rata kanan';
-                          const cleaned = selected.replace(/\[\/?(center|right|left)\]/gi, '');
-                          const next = val.substring(0, start) + `[right]${cleaned}[/right]` + val.substring(end);
+                          const formatted = selected
+                            .split('\n')
+                            .map((line) => {
+                              const cleaned = line.replace(/\[\/?(center|right|left)\]/gi, '').trim();
+                              return cleaned ? `[right]${cleaned}[/right]` : '';
+                            })
+                            .join('\n');
+                          const next = val.substring(0, start) + formatted + val.substring(end);
                           setItem(idx, { description: next });
                         }}
                         className="p-1 text-slate-600 hover:text-slate-900 hover:bg-white rounded transition"
