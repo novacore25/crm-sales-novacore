@@ -201,8 +201,8 @@ function RichDescription({
           );
         }
 
-        // Check Bullet List e.g. "- ", "* ", "• "
-        const bulletMatch = /^[-*•]\s*(.*)$/.exec(t);
+        // Check Bullet List: only real bullet prefixes like "• ", "- ", or "* " (with trailing space and not ending with *)
+        const bulletMatch = /^[•\-]\s+(.*)$/.exec(t) || (/^\*\s+(.*)$/.exec(t) && !/^\*[^*]+\*$/.test(t) ? /^\*\s+(.*)$/.exec(t) : null);
         if (bulletMatch) {
           return (
             <div

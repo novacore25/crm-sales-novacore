@@ -645,18 +645,15 @@ export default function DocumentFormClient({ seed }: { seed?: DocumentFormSeed }
                           const val = item.description || '';
                           const selected = val.substring(start, end);
                           if (!selected) {
-                            setItem(idx, { description: val + '*teks tebal*' });
+                            setItem(idx, { description: val + '**teks tebal**' });
                             return;
                           }
-                          // If already bold (*text* or **text**), remove bold
-                          if (
-                            (selected.startsWith('**') && selected.endsWith('**')) ||
-                            (selected.startsWith('*') && selected.endsWith('*'))
-                          ) {
-                            const unbold = selected.replace(/^\*{1,2}/, '').replace(/\*{1,2}$/, '');
+                          // If already bold (**text**), remove bold
+                          if (selected.startsWith('**') && selected.endsWith('**')) {
+                            const unbold = selected.slice(2, -2);
                             setItem(idx, { description: val.substring(0, start) + unbold + val.substring(end) });
                           } else {
-                            setItem(idx, { description: val.substring(0, start) + `*${selected}*` + val.substring(end) });
+                            setItem(idx, { description: val.substring(0, start) + `**${selected}**` + val.substring(end) });
                           }
                         }}
                         className="p-1 text-slate-600 hover:text-slate-900 hover:bg-white rounded transition"
