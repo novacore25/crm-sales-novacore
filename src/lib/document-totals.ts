@@ -21,13 +21,16 @@ export interface Totals {
 }
 
 /**
- * Subtotal, tax and grand total.
+ * Subtotal, tax and grand total with Gross Up calculation.
  *
- * The tax RATE is typed by the user; the multiplication is done here. That
- * split is deliberate. The TNT sample has `PPN 11%` struck through with a
- * different figure in its place and HYPE quotes 0,5%, so the rate is a business
- * decision that may change again. The arithmetic is not, and a document that
- * carries a real bank account cannot be allowed to add up wrongly.
+ * Rumus Gross Up:
+ * Final (Gross) = Subtotal / (1 - (taxRate / 100))
+ * taxAmount = grandTotal - subtotal
+ *
+ * Nilai subtotal adalah nilai bersih yang diterima perusahaan (target closing sales).
+ * Nilai grandTotal dibulatkan ke satuan Rupiah penuh terdekat (Math.round).
+ * Ketika dipotong pajak sebesar rate% oleh brand/klien, sisa yang diterima perusahaan
+ * tepat sama dengan nilai subtotal.
  */
 export function computeTotals(
   items: TotalsInput[],
@@ -35,18 +38,26 @@ export function computeTotals(
 ): Totals {
   const subtotal = items.reduce((sum, i) => sum + (Number(i.price) || 0), 0);
   const rate = taxRate === null || Number.isNaN(taxRate) ? 0 : taxRate;
-  const taxAmount = (subtotal * rate) / 100;
+
+  if (rate <= 0 || rate >= 100) {
+    const roundedSubtotal = Math.round(subtotal);
+    return {
+      subtotal: roundedSubtotal,
+      taxRate,
+      taxAmount: 0,
+      grandTotal: roundedSubtotal,
+    };
+  }
+
+  // Gross up formula: grandTotal = subtotal / (1 - rate / 100)
+  const grandTotal = Math.round(subtotal / (1 - rate / 100));
+  const taxAmount = grandTotal - Math.round(subtotal);
 
   return {
-    subtotal: round2(subtotal),
+    subtotal: Math.round(subtotal),
     taxRate,
-    taxAmount: round2(taxAmount),
-    // Below a cent the extra precision is noise, and a printed total the client
-    // cannot reproduce with their own addition loses the argument.
-    grandTotal: round2(subtotal + taxAmount),
+    taxAmount,
+    grandTotal,
   };
 }
 
-function round2(n: number): number {
-  return Math.round((n + Number.EPSILON) * 100) / 100;
-}

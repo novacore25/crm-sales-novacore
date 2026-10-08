@@ -457,7 +457,7 @@ function TntTemplate({ doc }: { doc: PreviewDoc }) {
               <td className="px-2 py-2.5 text-center align-middle font-black tabular-nums whitespace-nowrap border-l border-slate-300">
                 {rupiah(it.price)}
               </td>
-              <td className="px-2 py-2.5 text-center align-middle font-bold text-[8.5px] border-l border-slate-300">
+              <td className="px-2 py-2.5 text-center align-middle font-black tabular-nums whitespace-nowrap border-l border-slate-300">
                 {it.period || '-'}
               </td>
               <td className="px-2 py-2.5 text-center align-middle font-black tabular-nums whitespace-nowrap border-l border-slate-300">
@@ -722,8 +722,8 @@ function HypeTemplate({ doc }: { doc: PreviewDoc }) {
                 </div>
               </td>
               <td
-                className="px-3 text-center align-middle"
-                style={{ borderLeft: '1px solid #000', padding: '9mm 3mm' }}
+                className="px-3 text-center align-middle font-bold"
+                style={{ borderLeft: '1px solid #000', padding: '9mm 3mm', fontSize: '10pt' }}
               >
                 {it.period || '-'}
               </td>
@@ -732,7 +732,7 @@ function HypeTemplate({ doc }: { doc: PreviewDoc }) {
                 style={{ borderLeft: '1px solid #000', padding: '9mm 3mm', fontSize: '10pt' }}
               >
                 {isInvoice && doc.taxRate !== null
-                  ? rupiah(Math.round((doc.subtotal * (100 + doc.taxRate)) / 100))
+                  ? rupiah(doc.grandTotal)
                   : rupiah(it.price)}
               </td>
             </tr>
