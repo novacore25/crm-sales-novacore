@@ -190,37 +190,50 @@ export async function getDashboardStats(filters: {
         AND (${admin}::text IS NULL OR fh.by_user_name = ${admin})
       GROUP BY fh.lead_id
     ),
-    -- Won leads, with their revenue.
+    -- Won leads, with their revenue, scoped to the active date window and PIC filter
+    -- so that "Total Nominal Revenue" and "Deals Won" synchronize with OI Forecast
+    -- and Individual Target Contribution.
     --
-    -- leads.status is the authority on whether a deal closed - a lead that
-    -- reached Close Win in August is a won lead even when it is being viewed
-    -- through a September window, and cutting it out would make revenue jump
-    -- around as the date filter moves. That is the same reason the win/loss
-    -- buckets below read from the lead rather than from history.
-    --
-    -- DISTINCT ON (lead_id) gives each won lead exactly one revenue row, so a
-    -- re-logged correction supersedes the original instead of adding to it. The
-    -- funnel entry supplies the agreed deal value when it has one; otherwise the
-    -- lead's own value is used, which is the order the old COALESCE had.
-    --
-    -- The date window is deliberately NOT applied here, and neither is the PIC
-    -- filter: a won deal is revenue the company booked. Restricting either
-    -- would make "Total Nominal Revenue" mean something different every time
-    -- a filter moved, which is exactly the confusion the all-time TOTAL LEADS
-    -- label exists to prevent.
+    -- When no date window is set, it falls back to all-time won deals.
     wins AS (
       SELECT DISTINCT ON (vl.id)
         vl.id,
         COALESCE(fh.deal_value, vl.deal_value, 0) AS revenue
       FROM valid_leads vl
       LEFT JOIN LATERAL (
-        SELECT f.deal_value
+        SELECT f.deal_value, f.by_user_name, f.date_occurred, true AS matched
         FROM funnel_history f
         WHERE f.lead_id = vl.id AND f.stage = 'Close Win'
+          AND (${admin}::text IS NULL OR f.by_user_name = ${admin})
+          AND (${startDate}::timestamptz IS NULL OR f.date_occurred >= ${startDate})
+          AND (${endDate}::timestamptz IS NULL OR f.date_occurred <= ${endDate})
         ORDER BY f.date_occurred DESC, f.created_at DESC
         LIMIT 1
       ) fh ON TRUE
-      WHERE vl.status = 'Close Win'
+      LEFT JOIN LATERAL (
+        SELECT t.by_user_name
+        FROM funnel_history t
+        WHERE t.lead_id = vl.id
+        ORDER BY t.date_occurred DESC, t.created_at DESC
+        LIMIT 1
+      ) last_touch ON TRUE
+      WHERE (
+        -- Standard: lead is currently Close Win
+        (
+          vl.status = 'Close Win'
+          AND (${admin}::text IS NULL OR COALESCE(fh.by_user_name, last_touch.by_user_name) = ${admin})
+          AND (
+            (${startDate}::timestamptz IS NULL AND ${endDate}::timestamptz IS NULL)
+            OR fh.matched IS NOT NULL
+          )
+        )
+        -- Or deal closed within this window even if re-categorized
+        OR (
+          (${startDate}::timestamptz IS NOT NULL OR ${endDate}::timestamptz IS NOT NULL)
+          AND fh.matched IS NOT NULL
+          AND (${admin}::text IS NULL OR COALESCE(fh.by_user_name, last_touch.by_user_name) = ${admin})
+        )
+      )
       ORDER BY vl.id
     )
     SELECT
@@ -230,24 +243,7 @@ export async function getDashboardStats(filters: {
       (SELECT COUNT(*)::int FROM scoped_funnel WHERE has_chated)       AS total_chated,
       (SELECT COUNT(*)::int FROM scoped_funnel WHERE has_responsed)    AS total_responsed,
       (SELECT COUNT(*)::int FROM scoped_funnel WHERE has_set_meeting)  AS total_set_meeting,
-      -- Won leads INSIDE the window, matched to the same funnel scope as the
-      -- stages above.
-      --
-      -- This was a count of valid_leads with status 'Close Win', which is
-      -- all-time. The dashboard then divided that by
-      -- total_responsed, which IS window-scoped, and got 48 over 26 = 185%.
-      -- The two numbers were never comparable: one counted every deal the
-      -- company has ever closed, the other counted responses inside the
-      -- selected month. It looked like the team converted more than 100% of
-      -- responses, and the actual finding was a query that compared a lifetime
-      -- numerator with a monthly denominator.
-      (SELECT COUNT(DISTINCT vl.id) FROM valid_leads vl
-         JOIN funnel_history fh ON fh.lead_id = vl.id AND fh.stage = 'Close Win'
-        WHERE (${startDate}::timestamptz IS NULL OR fh.date_occurred >= ${startDate})
-          AND (${endDate}::timestamptz IS NULL OR fh.date_occurred <= ${endDate})
-          AND (${admin}::text IS NULL OR fh.by_user_name = ${admin}))   AS deals_won,
-      -- All-time wins, kept for the Conversion Success card, which is a
-      -- lifetime figure by design.
+      (SELECT COUNT(*)::int FROM wins)                                 AS deals_won,
       (SELECT COUNT(*)::int FROM valid_leads
         WHERE status = 'Close Win')                                    AS deals_won_lifetime,
       (SELECT COUNT(*)::int FROM valid_leads

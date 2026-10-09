@@ -799,8 +799,14 @@ export default function DashboardClient({
 
                 <div className="mb-8">
                   <h3 className="text-5xl font-black tracking-tighter mb-1 flex items-baseline gap-3">
-                    {scorecard.winLifetime} <span className="text-xl text-slate-400 font-bold tracking-tight">Deals Wan</span>
+                    {Boolean(filterStart && filterEnd) || filterAdmin !== 'ALL' ? scorecard.win : scorecard.winLifetime}{' '}
+                    <span className="text-xl text-slate-400 font-bold tracking-tight">Deals Won</span>
                   </h3>
+                  {Boolean(filterStart && filterEnd) && (
+                    <p className="text-[10px] text-slate-400 font-medium">
+                      Periode ini · Lifetime: {scorecard.winLifetime} deals
+                    </p>
+                  )}
                 </div>
 
                 <div className="space-y-2">
