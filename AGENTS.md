@@ -39,6 +39,19 @@ docs/               audit dan catatan keputusan
 
 ---
 
+## Server Architecture & Deployment Context (Coolify VPS)
+
+- **Environment**: Ubuntu VPS managed via Coolify v4 & Docker.
+- **Reverse Proxy**: Traefik (`coolify-proxy`) listens on ports 80 & 443. All web services must route through Traefik using Docker labels; **DO NOT bind host ports directly for web apps**.
+- **Port Restrictions (Do not allocate/bind on host)**:
+  - `80`, `443`, `8080`: Reserved for Traefik (`coolify-proxy`).
+  - `6001`, `6002`: Reserved for Coolify WebSockets (Realtime events & terminal).
+  - `8000`: Reserved for Coolify web service.
+  - `5432`, `54321`, `54322`: Reserved for existing PostgreSQL proxies.
+- **Application Networking**: Web apps should run on internal Docker networks (expose default ports like 3000 internally only) and be configured via Coolify domains.
+
+---
+
 ## Aturan 1 — build tidak membuktikan apa pun
 
 `npx tsc` dan `npm run build` lolos pada bug yang benar-benar rusak di produksi:
