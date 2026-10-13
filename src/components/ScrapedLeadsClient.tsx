@@ -136,12 +136,12 @@ export default function ScrapedLeadsClient({
       };
 
       try {
-        update('⏳ Memulai scraping target: ' + targetCount + ' leads...');
-        await wait(600);
-
         const items = [];
         let idleScrolls = 0;
         let isStopped = false;
+
+        update('[0/' + targetCount + '] Memulai...');
+        await wait(600);
 
         const stopBtn = document.createElement('button');
         stopBtn.innerText = '⏹️ Stop & Simpan Sekarang';
@@ -149,60 +149,15 @@ export default function ScrapedLeadsClient({
         stopBtn.onclick = () => { isStopped = true; stopBtn.innerText = '⏳ Menghentikan...'; };
         box.appendChild(stopBtn);
 
-        while (items.length < targetCount && idleScrolls < 35 && !isStopped) {
-          const isSpinning = Boolean(document.querySelector('.arco-spin-loading, [class*="spin-loading"]'));
-          if (isSpinning) {
-            update('⏳ Menunggu TikTok selesai memuat baris produk...');
-            await wait(700);
-            continue;
-          }
-
+        while (items.length < targetCount && idleScrolls < 45 && !isStopped) {
           const allCards = Array.from(document.querySelectorAll('.rounded-4'));
           const pendingCards = allCards.filter((c) => !c.hasAttribute('data-tnt-scraped'));
 
           if (!pendingCards.length) {
             idleScrolls++;
-            update('🔍 [' + items.length + '/' + targetCount + ' leads] Gas cari produk baru (Scroll/Halaman ke-' + idleScrolls + ')...');
+            update('[' + items.length + '/' + targetCount + '] Memuat data...');
 
-            // 1. Cek tombol pagination berikutnya (Next Page) Arco Design
-            const arcoNext = document.querySelector(
-              '.arco-pagination-item-next:not(.arco-pagination-item-disabled), ' +
-              '.arco-pagination-next:not(.arco-pagination-disabled), ' +
-              'li[class*="pagination-item-next"]:not([class*="disabled"]), ' +
-              'button[aria-label*="next" i]:not([disabled]), ' +
-              '.arco-pagination .arco-icon-right, ' +
-              '[aria-label*="Next" i]:not([disabled])'
-            );
-
-            // Cek juga tombol nomor halaman setelah halaman aktif (1 -> 2 -> 3)
-            const activePageItem = document.querySelector('.arco-pagination-item-active');
-            let nextNumItem = null;
-            if (activePageItem && activePageItem.nextElementSibling) {
-              const sib = activePageItem.nextElementSibling;
-              if (!sib.classList.contains('arco-pagination-item-disabled') && !sib.hasAttribute('disabled')) {
-                nextNumItem = sib;
-              }
-            }
-
-            const pageBtn = arcoNext || nextNumItem;
-            if (pageBtn) {
-              update('➡️ Membuka halaman berikutnya (' + items.length + '/' + targetCount + ' leads)...');
-              const clickTarget = pageBtn.querySelector('button, a, span, svg') || pageBtn;
-              ['mouseenter', 'mouseover', 'mousedown', 'mouseup', 'click'].forEach((evt) => {
-                try {
-                  clickTarget.dispatchEvent(new MouseEvent(evt, { bubbles: true }));
-                } catch(e) {}
-              });
-              try {
-                if (typeof clickTarget.click === 'function') clickTarget.click();
-                if (typeof pageBtn.click === 'function' && pageBtn !== clickTarget) pageBtn.click();
-              } catch(e) {}
-              window.scrollTo({ top: 350, behavior: 'instant' });
-              await wait(1800);
-              continue;
-            }
-
-            // 2. Jika tidak ada tombol pagination (infinite scroll), gulir layar ke bawah secara agresif
+            // Infinite scroll: gulir window & kontainer scrollable ke bawah
             window.scrollBy({ top: 1800, behavior: 'instant' });
             window.scrollTo({ top: document.body.scrollHeight, behavior: 'instant' });
             document.documentElement.scrollTop = document.documentElement.scrollHeight;
@@ -219,7 +174,7 @@ export default function ScrapedLeadsClient({
               el.dispatchEvent(new Event('scroll', { bubbles: true }));
             }
 
-            await wait(1600);
+            await wait(1400);
             continue;
           }
 
@@ -238,10 +193,9 @@ export default function ScrapedLeadsClient({
             const card = pendingCards[i];
             card.setAttribute('data-tnt-scraped', 'true');
 
-            // Jika kartu di baris ini masih loading / skeleton, tunggu sampai tombol chat muncul
+            // Menunggu load tombol chat KHUSUS kartu/baris ini saja jika belum muncul
             let chatImg = card.querySelector('img[src*="data:image/svg+xml"]');
             if (!chatImg) {
-              update('⏳ Menunggu baris produk selesai memuat...');
               for (let waitLoad = 0; waitLoad < 8; waitLoad++) {
                 await wait(300);
                 chatImg = card.querySelector('img[src*="data:image/svg+xml"]');
@@ -255,9 +209,8 @@ export default function ScrapedLeadsClient({
             const brandEl = card.querySelector('.bg-neutral-bg3 .arco-typography') || card.querySelector('.bg-neutral-bg3');
             let brand = brandEl ? (brandEl.getAttribute('title') || brandEl.innerText.split('(')[0]).trim() : '-';
 
-            // Lewati langsung jika brand ini sudah didapatkan kontaknya di sesi ini (anti dobel brand), gas cari produk berikutnya
+            // Lewati langsung jika brand ini sudah didapatkan kontaknya di sesi ini (anti dobel brand)
             if (brand && brand !== '-' && items.some((it) => it.brand.toLowerCase() === brand.toLowerCase())) {
-              update('⏩ Lewati dobel: ' + brand + ' (' + items.length + '/' + targetCount + ' leads)');
               continue;
             }
             if (!chatBtn) continue;

@@ -132,8 +132,12 @@ Di TikTok Shop Product Marketplace, beberapa produk yang berdekatan seringkali b
     continue; // Lewati seketika dalam 1ms, jangan buka jendela chat
   }
   ```
-- **Pemenuhan Target Penuh (Gas Terus Sampai Target):**
-  Jika user meminta 50 leads dan menemukan duplikat di halaman 1, scraper **TIDAK BOLEH BERHENTI**. Scraper otomatis berpindah ke halaman berikutnya via pagination Arco Design (`.arco-pagination-item-next`) atau deep scroll sampai jumlah `items.length` benar-benar mencapai 50 leads unik yang valid.
+- **Pemenuhan Target Penuh (Gas Terus Sampai Target via Infinite Scroll):**
+  TikTok Shop Marketplace menggunakan antarmuka **pure infinite scroll**. Jika user meminta 50 leads dan menemukan duplikat di baris awal, scraper **TIDAK BOLEH BERHENTI**. Scraper otomatis scroll ke bawah terus menerus (toleransi hingga 45 siklus) sampai jumlah `items.length` benar-benar mencapai 50 leads unik yang valid.
+- **Loading Baris Tertentu Saja:**
+  Menunggu loading hanya dilakukan pada kartu/baris yang sedang diproses (sampai ikon chat muncul, maksimal 2.4 detik). Tidak ada spinner global yang menahan seluruh halaman.
+- **Tampilan Status Ringkas:**
+  Status popup fokus pada indikator angka: `[X/Target] Brand (Kontak)` atau `[X/Target] Memuat data...`.
 
 ---
 
