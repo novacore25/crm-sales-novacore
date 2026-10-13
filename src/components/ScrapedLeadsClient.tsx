@@ -212,8 +212,14 @@ export default function ScrapedLeadsClient({
             idleScrolls++;
             update('[' + items.length + '/' + targetCount + '] Memuat data...');
 
+            // Trik jiggle/bounce scroll jika mentok: scroll ke atas sedikit, tunggu, lalu scroll ke bawah lagi
+            if (idleScrolls % 2 === 0) {
+              window.scrollBy({ top: -500, behavior: 'smooth' });
+              await wait(900);
+            }
+
             // Infinite scroll: gulir window & kontainer scrollable ke bawah
-            window.scrollBy({ top: 1800, behavior: 'instant' });
+            window.scrollBy({ top: 2000, behavior: 'instant' });
             window.scrollTo({ top: document.body.scrollHeight, behavior: 'instant' });
             document.documentElement.scrollTop = document.documentElement.scrollHeight;
             document.body.scrollTop = document.body.scrollHeight;
@@ -224,12 +230,15 @@ export default function ScrapedLeadsClient({
               return (ov === 'auto' || ov === 'scroll') && el.scrollHeight > el.clientHeight;
             });
             for (const el of scrollables) {
-              el.scrollTop += 1800;
+              if (idleScrolls % 2 === 0) {
+                el.scrollTop -= 500;
+              }
+              el.scrollTop += 2000;
               if (idleScrolls >= 2) el.scrollTop = el.scrollHeight;
               el.dispatchEvent(new Event('scroll', { bubbles: true }));
             }
 
-            await wait(1400);
+            await wait(1600);
             continue;
           }
 
