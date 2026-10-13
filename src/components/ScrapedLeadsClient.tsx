@@ -62,7 +62,7 @@ export default function ScrapedLeadsClient({
 
   // Bookmarklet Super Cerdas: Auto-Scroll, Cap Stempel, Input Target Jumlah, Deteksi Kategori, Polling Cepat, dan CSP Bypass via postMessage & Clipboard
   const bookmarkletCode = useMemo(() => {
-    const origin = typeof window !== 'undefined' ? window.location.origin : 'https://crm-sales.banzilla.my.id';
+    const origin = typeof window !== 'undefined' ? window.location.origin : 'https://sales.tntkreatif.com';
 
     const code = `(async function(){
       const wait = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -136,12 +136,67 @@ export default function ScrapedLeadsClient({
       };
 
       try {
+        update('📡 Menghubungkan ke CRM untuk mengambil buku catatan...');
+
+        const knownBrands = new Set();
+        let syncSuccess = false;
+
+        const syncWin = window.open(
+          '${origin}/sync-brands',
+          'tnt_sync_popup',
+          'width=380,height=300,left=150,top=150'
+        );
+
+        await new Promise((resolve) => {
+          const timeout = setTimeout(() => {
+            cleanup();
+            if (syncWin && !syncWin.closed) {
+              try { syncWin.close(); } catch(e) {}
+            }
+            resolve();
+          }, 8000);
+
+          const onMsg = (event) => {
+            if (event.data && event.data.type === 'TNT_SYNC_BRANDS' && Array.isArray(event.data.brands)) {
+              cleanup();
+              syncSuccess = true;
+              event.data.brands.forEach((b) => {
+                if (b && typeof b === 'string') knownBrands.add(b.toLowerCase().trim());
+              });
+              try {
+                localStorage.setItem('tnt_known_brands', JSON.stringify(Array.from(knownBrands)));
+              } catch(e) {}
+              if (syncWin && !syncWin.closed) {
+                try {
+                  syncWin.postMessage({ type: 'TNT_SYNC_ACK' }, '*');
+                  syncWin.close();
+                } catch(e) {}
+              }
+              resolve();
+            }
+          };
+
+          const cleanup = () => {
+            clearTimeout(timeout);
+            window.removeEventListener('message', onMsg);
+          };
+
+          window.addEventListener('message', onMsg);
+        });
+
+        if (!syncSuccess) {
+          box.style.background = '#881337';
+          box.innerHTML = '<b>❌ Gagal Sinkronisasi Buku Catatan CRM</b><div style="font-size:12px;margin-top:6px;line-height:1.4;color:#fecdd3;">Koneksi ke CRM timeout/gagal. Scraper dihentikan agar tidak terjadi data dobel.<br/><br/>Silakan pastikan internet lancar, lalu <b>klik lagi bookmarklet</b>.</div>';
+          setTimeout(() => box.remove(), 7000);
+          return;
+        }
+
+        update('✅ ' + knownBrands.size + ' Brand tercatat! Memulai...');
+        await wait(600);
+
         const items = [];
         let idleScrolls = 0;
         let isStopped = false;
-
-        update('[0/' + targetCount + '] Memulai...');
-        await wait(600);
 
         const stopBtn = document.createElement('button');
         stopBtn.innerText = '⏹️ Stop & Simpan Sekarang';
@@ -224,9 +279,12 @@ export default function ScrapedLeadsClient({
               }
             }
 
-            // 2. Lewati langsung jika brand ini sudah didapatkan kontaknya di sesi ini (anti dobel brand)
-            if (brand && brand !== '-' && items.some((it) => it.brand.toLowerCase() === brand.toLowerCase())) {
-              continue;
+            // 2. Lewati langsung jika brand ini sudah ada di CRM atau sudah didapatkan di sesi ini
+            if (brand && brand !== '-') {
+              const bLower = brand.toLowerCase().trim();
+              if (knownBrands.has(bLower) || items.some((it) => it.brand.toLowerCase().trim() === bLower)) {
+                continue;
+              }
             }
 
             // 3. Hover KARTU produk agar redup & memunculkan overlay tombol aksi (Copy, Chat, Select)
@@ -344,6 +402,7 @@ export default function ScrapedLeadsClient({
 
             if (brand && (phone || email)) {
               items.push({ brand, phone, email, product, category: selectedCategory });
+              knownBrands.add(brand.toLowerCase().trim());
 
               try {
                 localStorage.setItem('tnt_scraped_backup', JSON.stringify(items));

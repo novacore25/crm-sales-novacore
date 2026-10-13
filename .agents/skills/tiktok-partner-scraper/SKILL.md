@@ -23,37 +23,45 @@ description: Scrapes brand names, product titles, unmasked WhatsApp numbers, and
        ▼ (2. Input Target Leads & Floating Control Box)
 [User isi Target: misal 100 leads]
        │
-       ▼ (3. Loop Kartu Produk .rounded-4)
-[Cek Nama Brand] ──> Jika Brand sudah pernah diambil kontaknya di sesi ini:
-       │             SKIP KARTU SEKETIKA (Hemat waktu 5x, anti dobel brand)
+       ▼ (3. Handshake Wajib: Ambil Buku Catatan Brand dari CRM)
+[Buka Popup Kilat: /sync-brands] ──> CRM kirim daftar brand via postMessage
+       │                               ├── Sukses: Catat ke Set knownBrands & tutup popup
+       │                               └── Timeout (8s): STOP SCRAPER SEKETIKA! (Cegah dobel)
+       ▼ (4. Loop Kartu Produk .rounded-4)
+[Cek Nama Brand] ──> Jika Brand ada di knownBrands / sesi ini:
+       │             SKIP KARTU SEKETIKA 0ms (Anti dobel database & anti dobel sesi)
        ▼
-[4. Klik Ikon Chat di Kartu] ──> Tunggu 250ms popover .arco-popover-inner-content muncul
+[5. Hover Kartu Produk] ──> Redupkan kartu & render tombol aksi [Copy] [Chat] [Select]
        │
-       ▼ (5. Deteksi & Klik Ikon Mata Sensor - Eye Unmasking)
+       ▼ (6. Klik Ikon Chat di Kartu / Sibling Tombol Select)
+[Klik Tombol Chat] ──> Tunggu 350ms popover .arco-popover-inner-content muncul
+       │
+       ▼ (7. Deteksi & Klik Ikon Mata Sensor - Eye Unmasking)
 [Klik Ikon Mata di Header 'Contact Seller'] ──> Dispatch mousedown, mouseup, click
        │                                        ke tombol & SVG sekaligus
        ▼
-[6. Polling Adaptif & Syarat Mutlak Bebas Bintang '*']
-  - Cek tiap 45ms (maksimal 35 putaran = 1.75 detik).
+[8. Polling Adaptif & Syarat Mutlak Bebas Bintang '*']
+  - Cek tiap 50ms (maksimal 35 putaran = 1.75 detik).
   - Jika putaran ke-8 masih bertanda bintang: Klik ulang ikon mata otomatis.
   - Begitu tanda bintang '*' hilang: Langsung ekstrak tanpa menunggu timeout!
   - JIKA MASIH ADA BINTANG '*': REJECT! Dilarang simpan data setengah matang.
        │
-       ▼ (7. Real-Time Auto Backup)
+       ▼ (9. Real-Time Auto Backup)
   - Simpan tiap kartu ke localStorage ('tnt_scraped_backup').
+  - Tambahkan brand ke knownBrands Set.
   - Salin tiap 5 kartu ke Clipboard komputer.
        │
-       ▼ (8. Auto-Scroll & Deteksi Kartu Baru)
-  - Jika kartu di layar habis: scroll window & container ke bawah.
-  - Toleransi hingga 8 idle scrolls sebelum menyerah.
+       ▼ (10. Pure Infinite Scroll & Deteksi Kartu Baru)
+  - Jika kartu di layar habis: scroll window & scrollable container ke bawah.
+  - Toleransi hingga 45 idle scrolls sampai target terpenuhi.
        │
-       ▼ (9. Bypass CSP TikTok via postMessage / Clipboard)
+       ▼ (11. Bypass CSP TikTok via postMessage / Clipboard)
 [Klik Tombol 'Buka & Simpan ke CRM']
        │
        ├── Jalur Utama: window.open('/scraped-leads#incoming') + postMessage
        └── Jalur Cadangan: Tombol 'Tempel Leads (Clipboard)' di UI CRM
        │
-       ▼ (10. Server Action: saveScrapedBatch)
+       ▼ (12. Server Action: saveScrapedBatch)
 [Tabel Penampungan: scraped_leads di Database VPS]
   - Validasi ketat backend: Tolak nomor/email berbintang atau email terpotong.
   - Auto-Merge Pending Brand: Jika brand sama sudah ada di DB tanpa WA,

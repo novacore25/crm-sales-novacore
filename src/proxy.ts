@@ -36,9 +36,10 @@ export async function proxy(request: NextRequest) {
 
   const isLoginRoute = pathname === '/login';
   const isAuthRoute = pathname.startsWith('/api/auth');
+  const isSyncRoute = pathname === '/sync-brands';
 
   if (!session?.user) {
-    if (isLoginRoute || isAuthRoute) {
+    if (isLoginRoute || isAuthRoute || isSyncRoute) {
       return NextResponse.next();
     }
     const url = request.nextUrl.clone();
