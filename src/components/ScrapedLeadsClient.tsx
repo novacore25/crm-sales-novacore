@@ -40,13 +40,68 @@ interface ScrapedLeadsClientProps {
   categories: string[];
 }
 
+export type StagingFilterView = 'pending_all' | 'pending_new' | 'pending_matched' | 'promoted' | 'ignored' | 'all';
+
+function formatScrapedDate(dateStr?: string | null) {
+  if (!dateStr) return '-';
+  try {
+    const d = new Date(dateStr);
+    if (isNaN(d.getTime())) return '-';
+    return d.toLocaleDateString('id-ID', {
+      day: 'numeric',
+      month: 'short',
+      year: 'numeric',
+    });
+  } catch {
+    return '-';
+  }
+}
+
+function formatScrapedTime(dateStr?: string | null) {
+  if (!dateStr) return '';
+  try {
+    const d = new Date(dateStr);
+    if (isNaN(d.getTime())) return '';
+    return d.toLocaleTimeString('id-ID', {
+      hour: '2-digit',
+      minute: '2-digit',
+      hour12: false,
+    }) + ' WIB';
+  } catch {
+    return '';
+  }
+}
+
+function getRelativeTime(dateStr?: string | null) {
+  if (!dateStr) return '';
+  try {
+    const d = new Date(dateStr);
+    const now = new Date();
+    const diffMs = now.getTime() - d.getTime();
+    if (diffMs < 0) return 'Baru saja';
+    const diffSec = Math.floor(diffMs / 1000);
+    const diffMin = Math.floor(diffSec / 60);
+    const diffHours = Math.floor(diffMin / 60);
+    const diffDays = Math.floor(diffHours / 24);
+
+    if (diffMin < 1) return 'Baru saja';
+    if (diffMin < 60) return `${diffMin} mnt lalu`;
+    if (diffHours < 24) return `${diffHours} jam lalu`;
+    if (diffDays === 1) return 'Kemarin';
+    if (diffDays < 7) return `${diffDays} hr lalu`;
+    return '';
+  } catch {
+    return '';
+  }
+}
+
 export default function ScrapedLeadsClient({
   initialLeads,
   users,
   categories,
 }: ScrapedLeadsClientProps) {
   const [leadsList, setLeadsList] = useState<ScrapedLeadRow[]>(initialLeads);
-  const [statusFilter, setStatusFilter] = useState<'all' | 'pending' | 'promoted' | 'ignored'>('pending');
+  const [filterView, setFilterView] = useState<StagingFilterView>('pending_all');
   const [search, setSearch] = useState('');
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [isPromoteModalOpen, setIsPromoteModalOpen] = useState(false);
@@ -556,10 +611,54 @@ export default function ScrapedLeadsClient({
     }
   };
 
+  // Statistik Scorecard
+  const stats = useMemo(() => {
+    let pendingAll = 0;
+    let pendingNew = 0;
+    let pendingMatched = 0;
+    let promoted = 0;
+    let ignored = 0;
+
+    for (const item of leadsList) {
+      if (item.status === 'pending') {
+        pendingAll++;
+        if (item.matchedLead) {
+          pendingMatched++;
+        } else {
+          pendingNew++;
+        }
+      } else if (item.status === 'promoted') {
+        promoted++;
+      } else if (item.status === 'ignored') {
+        ignored++;
+      }
+    }
+
+    return {
+      total: leadsList.length,
+      pendingAll,
+      pendingNew,
+      pendingMatched,
+      promoted,
+      ignored,
+    };
+  }, [leadsList]);
+
   // Filter Data
   const filteredLeads = useMemo(() => {
     return leadsList.filter((item) => {
-      if (statusFilter !== 'all' && item.status !== statusFilter) return false;
+      if (filterView === 'pending_all') {
+        if (item.status !== 'pending') return false;
+      } else if (filterView === 'pending_new') {
+        if (item.status !== 'pending' || !!item.matchedLead) return false;
+      } else if (filterView === 'pending_matched') {
+        if (item.status !== 'pending' || !item.matchedLead) return false;
+      } else if (filterView === 'promoted') {
+        if (item.status !== 'promoted') return false;
+      } else if (filterView === 'ignored') {
+        if (item.status !== 'ignored') return false;
+      }
+
       if (search) {
         const q = search.toLowerCase();
         const b = (item.brandName || '').toLowerCase();
@@ -571,7 +670,7 @@ export default function ScrapedLeadsClient({
       }
       return true;
     });
-  }, [leadsList, statusFilter, search]);
+  }, [leadsList, filterView, search]);
 
   const availableCategories = useMemo(() => {
     const set = new Set(categories);
@@ -727,17 +826,190 @@ export default function ScrapedLeadsClient({
           </div>
         </div>
 
-        {/* Counter Badges */}
-        <div className="flex items-center gap-3">
-          <div className="px-4 py-2 bg-amber-50 border border-amber-200 rounded-xl text-amber-800 text-sm font-semibold flex items-center gap-2">
-            <Clock className="w-4 h-4 text-amber-600" />
-            <span>{leadsList.filter(l => l.status === 'pending').length} Menunggu Dipilah</span>
-          </div>
-          <div className="px-4 py-2 bg-emerald-50 border border-emerald-200 rounded-xl text-emerald-800 text-sm font-semibold flex items-center gap-2">
-            <CheckCircle2 className="w-4 h-4 text-emerald-600" />
-            <span>{leadsList.filter(l => l.status === 'promoted').length} Sudah Ditarik</span>
-          </div>
+        {/* Counter Info */}
+        <div className="flex items-center gap-2">
+          <span className="px-3.5 py-2 bg-slate-100 border border-slate-200 rounded-xl text-slate-700 text-xs font-bold">
+            Total {stats.total} Leads di Penampungan
+          </span>
         </div>
+      </div>
+
+      {/* Scorecards Interaktif (Klik untuk filter instan) */}
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3 md:gap-4">
+        {/* 1. Menunggu Dipilah */}
+        <button
+          type="button"
+          onClick={() => {
+            setFilterView('pending_all');
+            setSelectedIds(new Set());
+          }}
+          className={`text-left p-4 rounded-2xl border transition-all relative overflow-hidden group ${
+            filterView === 'pending_all'
+              ? 'bg-amber-50/80 border-amber-400 ring-2 ring-amber-400/30 shadow-md'
+              : 'bg-white border-slate-200 hover:border-amber-300 hover:bg-amber-50/30 shadow-sm'
+          }`}
+        >
+          <div className="flex items-center justify-between">
+            <span className="text-xs font-bold text-slate-500 uppercase tracking-wider">Menunggu Dipilah</span>
+            <div className={`p-2 rounded-xl transition-colors ${
+              filterView === 'pending_all' ? 'bg-amber-500 text-white' : 'bg-amber-100 text-amber-700 group-hover:bg-amber-200'
+            }`}>
+              <Clock className="w-4 h-4" />
+            </div>
+          </div>
+          <div className="mt-3 flex items-baseline gap-2">
+            <span className="text-2xl md:text-3xl font-extrabold text-slate-900 tracking-tight">
+              {stats.pendingAll}
+            </span>
+            <span className="text-xs text-amber-700 font-medium">Semua antrean</span>
+          </div>
+          <p className="text-[11px] text-slate-500 mt-1 truncate">
+            Total data baru dari TikTok Shop
+          </p>
+          {filterView === 'pending_all' && (
+            <div className="absolute bottom-0 left-0 right-0 h-1 bg-amber-500 rounded-b-2xl" />
+          )}
+        </button>
+
+        {/* 2. Brand Baru (Fresh) */}
+        <button
+          type="button"
+          onClick={() => {
+            setFilterView('pending_new');
+            setSelectedIds(new Set());
+          }}
+          className={`text-left p-4 rounded-2xl border transition-all relative overflow-hidden group ${
+            filterView === 'pending_new'
+              ? 'bg-indigo-50/80 border-indigo-400 ring-2 ring-indigo-400/30 shadow-md'
+              : 'bg-white border-slate-200 hover:border-indigo-300 hover:bg-indigo-50/30 shadow-sm'
+          }`}
+        >
+          <div className="flex items-center justify-between">
+            <span className="text-xs font-bold text-slate-500 uppercase tracking-wider">Brand Baru</span>
+            <div className={`p-2 rounded-xl transition-colors ${
+              filterView === 'pending_new' ? 'bg-indigo-600 text-white' : 'bg-indigo-100 text-indigo-700 group-hover:bg-indigo-200'
+            }`}>
+              <Sparkles className="w-4 h-4" />
+            </div>
+          </div>
+          <div className="mt-3 flex items-baseline gap-2">
+            <span className="text-2xl md:text-3xl font-extrabold text-slate-900 tracking-tight">
+              {stats.pendingNew}
+            </span>
+            <span className="text-xs text-indigo-700 font-semibold">100% Fresh</span>
+          </div>
+          <p className="text-[11px] text-slate-500 mt-1 truncate">
+            Siap ditarik ke Leads Utama
+          </p>
+          {filterView === 'pending_new' && (
+            <div className="absolute bottom-0 left-0 right-0 h-1 bg-indigo-600 rounded-b-2xl" />
+          )}
+        </button>
+
+        {/* 3. Data Mirip / Kembar */}
+        <button
+          type="button"
+          onClick={() => {
+            setFilterView('pending_matched');
+            setSelectedIds(new Set());
+          }}
+          className={`text-left p-4 rounded-2xl border transition-all relative overflow-hidden group ${
+            filterView === 'pending_matched'
+              ? 'bg-purple-50/80 border-purple-400 ring-2 ring-purple-400/30 shadow-md'
+              : 'bg-white border-slate-200 hover:border-purple-300 hover:bg-purple-50/30 shadow-sm'
+          }`}
+        >
+          <div className="flex items-center justify-between">
+            <span className="text-xs font-bold text-slate-500 uppercase tracking-wider">Data Mirip</span>
+            <div className={`p-2 rounded-xl transition-colors ${
+              filterView === 'pending_matched' ? 'bg-purple-600 text-white' : 'bg-purple-100 text-purple-700 group-hover:bg-purple-200'
+            }`}>
+              <ShieldAlert className="w-4 h-4" />
+            </div>
+          </div>
+          <div className="mt-3 flex items-baseline gap-2">
+            <span className="text-2xl md:text-3xl font-extrabold text-slate-900 tracking-tight">
+              {stats.pendingMatched}
+            </span>
+            <span className="text-xs text-purple-700 font-semibold">Perlu Cek</span>
+          </div>
+          <p className="text-[11px] text-slate-500 mt-1 truncate">
+            Mirip/dobel dengan lead utama
+          </p>
+          {filterView === 'pending_matched' && (
+            <div className="absolute bottom-0 left-0 right-0 h-1 bg-purple-600 rounded-b-2xl" />
+          )}
+        </button>
+
+        {/* 4. Sudah Ditarik */}
+        <button
+          type="button"
+          onClick={() => {
+            setFilterView('promoted');
+            setSelectedIds(new Set());
+          }}
+          className={`text-left p-4 rounded-2xl border transition-all relative overflow-hidden group ${
+            filterView === 'promoted'
+              ? 'bg-emerald-50/80 border-emerald-400 ring-2 ring-emerald-400/30 shadow-md'
+              : 'bg-white border-slate-200 hover:border-emerald-300 hover:bg-emerald-50/30 shadow-sm'
+          }`}
+        >
+          <div className="flex items-center justify-between">
+            <span className="text-xs font-bold text-slate-500 uppercase tracking-wider">Sudah Ditarik</span>
+            <div className={`p-2 rounded-xl transition-colors ${
+              filterView === 'promoted' ? 'bg-emerald-600 text-white' : 'bg-emerald-100 text-emerald-700 group-hover:bg-emerald-200'
+            }`}>
+              <CheckCircle2 className="w-4 h-4" />
+            </div>
+          </div>
+          <div className="mt-3 flex items-baseline gap-2">
+            <span className="text-2xl md:text-3xl font-extrabold text-slate-900 tracking-tight">
+              {stats.promoted}
+            </span>
+            <span className="text-xs text-emerald-700 font-medium">Tersimpan</span>
+          </div>
+          <p className="text-[11px] text-slate-500 mt-1 truncate">
+            Sudah masuk pipeline aktif
+          </p>
+          {filterView === 'promoted' && (
+            <div className="absolute bottom-0 left-0 right-0 h-1 bg-emerald-600 rounded-b-2xl" />
+          )}
+        </button>
+
+        {/* 5. Diabaikan */}
+        <button
+          type="button"
+          onClick={() => {
+            setFilterView('ignored');
+            setSelectedIds(new Set());
+          }}
+          className={`text-left p-4 rounded-2xl border transition-all relative overflow-hidden group col-span-2 sm:col-span-1 ${
+            filterView === 'ignored'
+              ? 'bg-slate-100 border-slate-400 ring-2 ring-slate-400/30 shadow-md'
+              : 'bg-white border-slate-200 hover:border-slate-300 hover:bg-slate-50/50 shadow-sm'
+          }`}
+        >
+          <div className="flex items-center justify-between">
+            <span className="text-xs font-bold text-slate-500 uppercase tracking-wider">Diabaikan</span>
+            <div className={`p-2 rounded-xl transition-colors ${
+              filterView === 'ignored' ? 'bg-slate-700 text-white' : 'bg-slate-100 text-slate-600 group-hover:bg-slate-200'
+            }`}>
+              <EyeOff className="w-4 h-4" />
+            </div>
+          </div>
+          <div className="mt-3 flex items-baseline gap-2">
+            <span className="text-2xl md:text-3xl font-extrabold text-slate-900 tracking-tight">
+              {stats.ignored}
+            </span>
+            <span className="text-xs text-slate-500 font-medium">Skip</span>
+          </div>
+          <p className="text-[11px] text-slate-500 mt-1 truncate">
+            Dilewati saat kurasi
+          </p>
+          {filterView === 'ignored' && (
+            <div className="absolute bottom-0 left-0 right-0 h-1 bg-slate-700 rounded-b-2xl" />
+          )}
+        </button>
       </div>
 
       {/* Bookmarklet Tool Banner */}
@@ -783,21 +1055,33 @@ export default function ScrapedLeadsClient({
       {/* Filter & Search Bar */}
       <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm flex flex-col md:flex-row items-center justify-between gap-4">
         {/* Tab Status */}
-        <div className="flex items-center gap-1.5 p-1 bg-slate-100 rounded-lg w-full md:w-auto">
-          {(['pending', 'promoted', 'ignored', 'all'] as const).map((tab) => (
+        <div className="flex flex-wrap items-center gap-1.5 p-1 bg-slate-100 rounded-xl w-full md:w-auto">
+          {[
+            { id: 'pending_all', label: 'Menunggu', count: stats.pendingAll },
+            { id: 'pending_new', label: 'Brand Baru', count: stats.pendingNew },
+            { id: 'pending_matched', label: 'Data Mirip', count: stats.pendingMatched },
+            { id: 'promoted', label: 'Ditarik', count: stats.promoted },
+            { id: 'ignored', label: 'Diabaikan', count: stats.ignored },
+            { id: 'all', label: 'Semua', count: stats.total },
+          ].map((tab) => (
             <button
-              key={tab}
+              key={tab.id}
               onClick={() => {
-                setStatusFilter(tab);
+                setFilterView(tab.id as StagingFilterView);
                 setSelectedIds(new Set());
               }}
-              className={`flex-1 md:flex-initial px-4 py-1.5 rounded-md text-xs font-bold capitalize transition-all ${
-                statusFilter === tab
+              className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 ${
+                filterView === tab.id
                   ? 'bg-white text-indigo-700 shadow-sm'
-                  : 'text-slate-600 hover:text-slate-900'
+                  : 'text-slate-600 hover:text-slate-900 hover:bg-slate-200/50'
               }`}
             >
-              {tab === 'pending' ? 'Pending' : tab === 'promoted' ? 'Sudah Ditarik' : tab === 'ignored' ? 'Diabaikan' : 'Semua'}
+              <span>{tab.label}</span>
+              <span className={`text-[10px] px-1.5 py-0.2 rounded-full font-bold ${
+                filterView === tab.id ? 'bg-indigo-50 text-indigo-700' : 'bg-slate-200 text-slate-600'
+              }`}>
+                {tab.count}
+              </span>
             </button>
           ))}
         </div>
@@ -878,6 +1162,7 @@ export default function ScrapedLeadsClient({
                   />
                 </th>
                 <th className="py-3 px-4">Brand</th>
+                <th className="py-3 px-4">Waktu Scraping</th>
                 <th className="py-3 px-4">Kategori</th>
                 <th className="py-3 px-4">Kontak WhatsApp</th>
                 <th className="py-3 px-4">Email</th>
@@ -889,7 +1174,7 @@ export default function ScrapedLeadsClient({
             <tbody className="divide-y divide-slate-100">
               {filteredLeads.length === 0 ? (
                 <tr>
-                  <td colSpan={8} className="text-center py-12 text-slate-400">
+                  <td colSpan={9} className="text-center py-12 text-slate-400">
                     <AlertCircle className="w-8 h-8 mx-auto mb-2 text-slate-300" />
                     Tidak ada data leads pada filter ini.
                   </td>
@@ -915,6 +1200,22 @@ export default function ScrapedLeadsClient({
                       </td>
                       <td className="py-3 px-4 font-bold text-slate-900">
                         {item.brandName}
+                      </td>
+                      <td className="py-3 px-4 whitespace-nowrap">
+                        <div className="flex flex-col">
+                          <div className="flex items-center gap-1.5 text-xs font-semibold text-slate-800">
+                            <Clock className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                            <span>{formatScrapedDate(item.scrapedAt)}</span>
+                          </div>
+                          <div className="text-[11px] text-slate-500 pl-5 flex items-center gap-1.5 mt-0.5">
+                            <span>{formatScrapedTime(item.scrapedAt)}</span>
+                            {getRelativeTime(item.scrapedAt) && (
+                              <span className="text-[10px] px-1.5 py-0.2 bg-slate-100 text-slate-600 rounded font-medium">
+                                {getRelativeTime(item.scrapedAt)}
+                              </span>
+                            )}
+                          </div>
+                        </div>
                       </td>
                       <td className="py-3 px-4">
                         {item.category ? (
