@@ -567,6 +567,7 @@ export default function ScrapedLeadsClient({
                   />
                 </th>
                 <th className="py-3 px-4">Brand</th>
+                <th className="py-3 px-4">Kategori</th>
                 <th className="py-3 px-4">Kontak WhatsApp</th>
                 <th className="py-3 px-4">Email</th>
                 <th className="py-3 px-4">Sampel Produk</th>
@@ -577,7 +578,7 @@ export default function ScrapedLeadsClient({
             <tbody className="divide-y divide-slate-100">
               {filteredLeads.length === 0 ? (
                 <tr>
-                  <td colSpan={7} className="text-center py-12 text-slate-400">
+                  <td colSpan={8} className="text-center py-12 text-slate-400">
                     <AlertCircle className="w-8 h-8 mx-auto mb-2 text-slate-300" />
                     Tidak ada data leads pada filter ini.
                   </td>
@@ -601,12 +602,17 @@ export default function ScrapedLeadsClient({
                           title="Pilih untuk ditarik atau dihapus"
                         />
                       </td>
-                      <td className="py-3 px-4 text-slate-900">
-                        <div className="font-bold">{item.brandName}</div>
-                        {item.category && (
-                          <span className="inline-block mt-1 px-2 py-0.5 rounded text-[11px] font-semibold bg-indigo-50 text-indigo-700 border border-indigo-200">
-                            📁 {item.category}
+                      <td className="py-3 px-4 font-bold text-slate-900">
+                        {item.brandName}
+                      </td>
+                      <td className="py-3 px-4">
+                        {item.category ? (
+                          <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-semibold bg-indigo-50 text-indigo-700 border border-indigo-200">
+                            <span>📁</span>
+                            <span>{item.category}</span>
                           </span>
+                        ) : (
+                          <span className="text-slate-400 text-xs italic">-</span>
                         )}
                       </td>
                       <td className="py-3 px-4">
