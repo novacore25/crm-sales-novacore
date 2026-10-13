@@ -149,18 +149,31 @@ export default function ScrapedLeadsClient({
         stopBtn.onclick = () => { isStopped = true; stopBtn.innerText = '⏳ Menghentikan...'; };
         box.appendChild(stopBtn);
 
-        while (items.length < targetCount && idleScrolls < 8 && !isStopped) {
+        while (items.length < targetCount && idleScrolls < 14 && !isStopped) {
           const allCards = Array.from(document.querySelectorAll('.rounded-4'));
           const freshCards = allCards.filter((c) => !c.hasAttribute('data-tnt-scraped') && c.querySelector('img[src*="data:image/svg+xml"]'));
 
           if (!freshCards.length) {
             idleScrolls++;
-            update('📜 Memuat produk baru dari TikTok (' + items.length + '/' + targetCount + ' leads)...');
-            window.scrollBy({ top: 1200, behavior: 'smooth' });
+            update('📜 Mencari produk baru (' + items.length + '/' + targetCount + ' leads, scroll ke-' + idleScrolls + ')...');
+            window.scrollBy({ top: 1600, behavior: 'smooth' });
             window.scrollTo({ top: document.body.scrollHeight, behavior: 'smooth' });
-            const scrollContainer = document.querySelector('.arco-layout-content, main, [class*="product-list"]');
-            if (scrollContainer) scrollContainer.scrollTop += 1200;
-            await wait(1400);
+
+            const scrollables = Array.from(document.querySelectorAll('*')).filter((el) => {
+              const ov = window.getComputedStyle(el).overflowY;
+              return (ov === 'auto' || ov === 'scroll') && el.scrollHeight > el.clientHeight;
+            });
+            for (const el of scrollables) {
+              el.scrollTop += 1600;
+              if (idleScrolls >= 3) el.scrollTop = el.scrollHeight;
+            }
+
+            const nextBtn = document.querySelector('.arco-pagination-next:not(.arco-pagination-disabled), button[aria-label*="next" i]:not([disabled])');
+            if (nextBtn) {
+              try { nextBtn.click(); } catch(e){}
+            }
+
+            await wait(1800);
             continue;
           }
 
@@ -172,7 +185,7 @@ export default function ScrapedLeadsClient({
             const brandEl = card.querySelector('.bg-neutral-bg3 .arco-typography') || card.querySelector('.bg-neutral-bg3');
             let brand = brandEl ? (brandEl.getAttribute('title') || brandEl.innerText.split('(')[0]).trim() : '-';
 
-            // Lewati langsung jika brand ini sudah didapatkan kontaknya di sesi ini (hemat waktu 5x lipat & anti dobel brand)
+            // Lewati langsung jika brand ini sudah didapatkan kontaknya di sesi ini (anti dobel brand)
             if (brand && brand !== '-' && items.some((it) => it.brand.toLowerCase() === brand.toLowerCase())) {
               card.setAttribute('data-tnt-scraped', 'true');
               continue;
@@ -188,7 +201,7 @@ export default function ScrapedLeadsClient({
             chatBtn.dispatchEvent(new MouseEvent('mouseenter', { bubbles: true }));
             chatBtn.dispatchEvent(new MouseEvent('mouseover', { bubbles: true }));
             chatBtn.click();
-            await wait(250);
+            await wait(350);
 
             const allPopovers = document.querySelectorAll('.arco-popover-inner-content');
             const popover = allPopovers[allPopovers.length - 1];
@@ -218,7 +231,7 @@ export default function ScrapedLeadsClient({
                 });
 
                 for (let poll = 0; poll < 35; poll++) {
-                  await wait(45);
+                  await wait(50);
                   const pTxt = popover.innerText;
                   if (!pTxt.includes('*')) break;
                   if (poll === 8) {
@@ -237,15 +250,18 @@ export default function ScrapedLeadsClient({
               // Syarat mutlak: hanya ambil data jika teks di popover TIDAK lagi mengandung bintang '*'
               if (!txt.includes('*')) {
                 for (const line of txt.split('\\n')) {
-                  if (line.includes('@')) {
-                    const mMail = line.match(/[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}/);
+                  const trimmed = line.trim();
+                  if (trimmed.includes('@')) {
+                    const mMail = trimmed.match(/[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}/);
                     if (mMail) email = mMail[0];
+                    continue;
                   }
-                  if (line.includes('+62') || line.includes('ID 08') || line.includes('ID +62') || line.startsWith('08')) {
-                    let num = line.replace(/[^\\d]/g, '');
+                  // Ekstrak nomor WA/telepon: baik Indonesia (+62 / 08) maupun internasional (CN +86, MY +60, dsb)
+                  if (trimmed.includes('+') || /^[A-Z]{2}\\s*[\\+\\d]/.test(trimmed) || trimmed.replace(/[^\\d]/g, '').length >= 8) {
+                    let num = trimmed.replace(/[^\\d]/g, '');
                     if (num.startsWith('08')) num = '628' + num.slice(2);
                     if (num.startsWith('6208')) num = '628' + num.slice(4);
-                    if (num.startsWith('628') && num.length >= 10) {
+                    if (num.length >= 8) {
                       phone = num;
                       break;
                     }
