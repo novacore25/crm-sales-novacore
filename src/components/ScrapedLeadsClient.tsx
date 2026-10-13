@@ -1515,7 +1515,7 @@ export default function ScrapedLeadsClient({
       {/* Modal Gabungkan / Update Kontak */}
       {isMergeModalOpen && selectedLeadForMerge && selectedLeadForMerge.matchedLead && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/50 backdrop-blur-sm p-4">
-          <div className="bg-white rounded-2xl shadow-2xl max-w-lg w-full p-6 space-y-5 animate-in zoom-in-95">
+          <div className="bg-white rounded-2xl shadow-2xl max-w-2xl w-full p-6 space-y-5 animate-in zoom-in-95">
             <div>
               <div className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-bold border mb-2 ${
                 selectedLeadForMerge.matchedLead.updateType === 'need_email' || selectedLeadForMerge.matchedLead.updateType === 'need_phone'
@@ -1560,32 +1560,80 @@ export default function ScrapedLeadsClient({
               </p>
             </div>
 
-            <div className="bg-slate-50 border border-slate-200 p-4 rounded-xl space-y-2.5 text-xs">
-              <div className="flex justify-between items-start pb-2 border-b border-slate-200">
-                <span className="font-semibold text-slate-500 shrink-0">Status Sistem:</span>
-                <span className="font-bold text-slate-800 text-right">{selectedLeadForMerge.matchedLead.matchReason}</span>
+            {/* Analisis Status Kemiripan */}
+            <div className="p-3 bg-slate-50 border border-slate-200 rounded-xl text-xs flex items-start gap-2.5">
+              <ShieldAlert className="w-4 h-4 text-purple-600 shrink-0 mt-0.5" />
+              <div>
+                <span className="font-semibold text-slate-500">Analisis Kemiripan Sistem:</span>
+                <div className="font-bold text-slate-900 mt-0.5 leading-snug">
+                  {selectedLeadForMerge.matchedLead.matchReason}
+                </div>
               </div>
-              <div className="flex justify-between items-center pb-2 border-b border-slate-200">
-                <span className="font-semibold text-slate-500">Lead Target di CRM:</span>
-                <span className="font-bold text-slate-900">{selectedLeadForMerge.matchedLead.brandName}</span>
+            </div>
+
+            {/* Matriks Perbandingan: Data CRM vs Hasil Scraping */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
+              {/* Kolom 1: Data di Database CRM */}
+              <div className="p-3.5 bg-slate-50/80 border border-slate-200 rounded-xl space-y-2.5">
+                <div className="flex items-center gap-1.5 pb-2 border-b border-slate-200 font-bold text-slate-700">
+                  <span>🏢</span>
+                  <span>Data di Database CRM (Target)</span>
+                </div>
+                <div>
+                  <span className="text-[11px] text-slate-400 font-medium block">Nama Brand di CRM</span>
+                  <span className="text-sm font-bold text-slate-900 block mt-0.5">
+                    {selectedLeadForMerge.matchedLead.brandName}
+                  </span>
+                </div>
+                <div>
+                  <span className="text-[11px] text-slate-400 font-medium block">No. WhatsApp di CRM</span>
+                  <span className="font-semibold text-slate-800 block mt-0.5">
+                    {selectedLeadForMerge.matchedLead.contact ? `+${selectedLeadForMerge.matchedLead.contact}` : '(Belum ada)'}
+                  </span>
+                </div>
+                <div>
+                  <span className="text-[11px] text-slate-400 font-medium block">Email di CRM</span>
+                  <span className="font-semibold text-slate-800 block mt-0.5 break-all">
+                    {selectedLeadForMerge.matchedLead.email || '(Belum ada)'}
+                  </span>
+                </div>
+                <div>
+                  <span className="text-[11px] text-slate-400 font-medium block">PIC yang Memegang</span>
+                  <span className="font-medium text-slate-700 block mt-0.5">
+                    {selectedLeadForMerge.matchedLead.picName || 'Belum ada PIC'}
+                  </span>
+                </div>
               </div>
-              <div className="flex justify-between items-center pb-2 border-b border-slate-200">
-                <span className="font-semibold text-slate-500">PIC yang Memegang:</span>
-                <span className="font-bold text-slate-900">{selectedLeadForMerge.matchedLead.picName || 'Belum ada PIC'}</span>
-              </div>
-              <div className="flex justify-between items-center pb-2 border-b border-slate-200">
-                <span className="font-semibold text-slate-500">No. WA di CRM:</span>
-                <span className="font-medium text-slate-700">{selectedLeadForMerge.matchedLead.contact || '(Belum ada)'}</span>
-              </div>
-              <div className="flex justify-between items-center pb-2 border-b border-slate-200">
-                <span className="font-semibold text-slate-500">Email di CRM:</span>
-                <span className="font-medium text-slate-700">{selectedLeadForMerge.matchedLead.email || '(Belum ada)'}</span>
-              </div>
-              <div className="flex justify-between items-start text-indigo-900 font-bold bg-indigo-50/70 border border-indigo-100 p-2.5 rounded-lg mt-1">
-                <span className="shrink-0">Data Baru (TikTok):</span>
-                <div className="text-right">
-                  <div>WA: +{selectedLeadForMerge.contact || '-'}</div>
-                  {selectedLeadForMerge.email && <div className="text-indigo-700 font-semibold mt-0.5">Email: {selectedLeadForMerge.email}</div>}
+
+              {/* Kolom 2: Data Baru Hasil Scraping */}
+              <div className="p-3.5 bg-indigo-50/60 border border-indigo-200 rounded-xl space-y-2.5">
+                <div className="flex items-center gap-1.5 pb-2 border-b border-indigo-200 font-bold text-indigo-900">
+                  <span>✨</span>
+                  <span>Hasil Scraping (TikTok Shop)</span>
+                </div>
+                <div>
+                  <span className="text-[11px] text-indigo-600 font-medium block">Nama Brand Scraped</span>
+                  <span className="text-sm font-bold text-indigo-950 block mt-0.5">
+                    {selectedLeadForMerge.brandName}
+                  </span>
+                </div>
+                <div>
+                  <span className="text-[11px] text-indigo-600 font-medium block">No. WhatsApp Baru</span>
+                  <span className="font-bold text-emerald-700 block mt-0.5">
+                    {selectedLeadForMerge.contact ? `+${selectedLeadForMerge.contact}` : '(Belum ada)'}
+                  </span>
+                </div>
+                <div>
+                  <span className="text-[11px] text-indigo-600 font-medium block">Email Baru</span>
+                  <span className="font-bold text-indigo-900 block mt-0.5 break-all">
+                    {selectedLeadForMerge.email || '(Belum ada)'}
+                  </span>
+                </div>
+                <div>
+                  <span className="text-[11px] text-indigo-600 font-medium block">Sampel Produk</span>
+                  <span className="font-medium text-slate-600 block mt-0.5 line-clamp-2" title={selectedLeadForMerge.productName || ''}>
+                    {selectedLeadForMerge.productName || '-'}
+                  </span>
                 </div>
               </div>
             </div>
