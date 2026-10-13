@@ -123,10 +123,14 @@ export async function getScrapedLeads(options?: {
       const mlBrand = (ml.brandName || '').trim().toLowerCase();
 
       const phoneMatches = Boolean(
-        cleanPhone && cleanPhone.length >= 8 && (mlPhone.includes(cleanPhone) || cleanPhone.includes(mlPhone)),
+        cleanPhone.length >= 8 &&
+          mlPhone.length >= 8 &&
+          (mlPhone.includes(cleanPhone) || cleanPhone.includes(mlPhone)),
       );
       const brandMatches = Boolean(
-        cleanBrand.length >= 3 && (mlBrand === cleanBrand || mlBrand.includes(cleanBrand) || cleanBrand.includes(mlBrand)),
+        cleanBrand.length >= 3 &&
+          mlBrand.length >= 3 &&
+          (mlBrand === cleanBrand || mlBrand.includes(cleanBrand) || cleanBrand.includes(mlBrand)),
       );
 
       if (phoneMatches && brandMatches) {
