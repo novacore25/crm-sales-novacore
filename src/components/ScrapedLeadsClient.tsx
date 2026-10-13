@@ -196,19 +196,38 @@ export default function ScrapedLeadsClient({
             let email = '';
 
             if (popover) {
-              const eye = popover.querySelector('.arco-icon-eye_invisible, svg[class*="eye"], .arco-icon-hover');
+              let eye = popover.querySelector('svg[class*="eye"], .arco-icon-eye, .arco-icon-eye-invisible, .arco-icon-eye_invisible, [class*="eye"]');
+              if (!eye) {
+                const headerEl = Array.from(popover.querySelectorAll('div, p, span')).find((el) => (el.innerText || '').includes('Contact'));
+                if (headerEl) eye = headerEl.querySelector('svg');
+              }
+              if (!eye) {
+                eye = popover.querySelector('svg');
+              }
+
               if (eye) {
-                const eyeBtn = eye.closest('.arco-icon-hover, button, span') || eye;
-                eyeBtn.dispatchEvent(new MouseEvent('click', { bubbles: true }));
-                eyeBtn.click();
+                const eyeBtn = eye.closest('.arco-icon-hover, button, span, div') || eye;
+                [eyeBtn, eye].forEach((el) => {
+                  try {
+                    el.dispatchEvent(new MouseEvent('mouseenter', { bubbles: true }));
+                    el.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
+                    el.dispatchEvent(new MouseEvent('mouseup', { bubbles: true }));
+                    el.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+                    if (typeof el.click === 'function') el.click();
+                  } catch(e) {}
+                });
 
                 for (let poll = 0; poll < 35; poll++) {
                   await wait(45);
                   const pTxt = popover.innerText;
                   if (!pTxt.includes('*')) break;
-                  if (poll === 10) {
-                    eyeBtn.dispatchEvent(new MouseEvent('click', { bubbles: true }));
-                    eyeBtn.click();
+                  if (poll === 8) {
+                    [eyeBtn, eye].forEach((el) => {
+                      try {
+                        el.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+                        if (typeof el.click === 'function') el.click();
+                      } catch(e) {}
+                    });
                   }
                 }
               }
