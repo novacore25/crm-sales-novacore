@@ -88,8 +88,14 @@ description: Scrapes brand names, product titles, unmasked WhatsApp numbers, and
     - Tunggu 220ms hingga tooltip Arco muncul di DOM (`.arco-tooltip-content`).
     - Ekstrak teks utuh dari tooltip (buang rating seperti `(★4.9)`).
     - Dispatch `mouseleave` dan sembunyikan tooltip kembali.
+- **Aktivasi Overlay Kartu Produk (Wajib Hover Kartu Terlebih Dahulu):**
+  - Tombol aksi `[Copy] [Chat] [Select]` dan efek redup kartu **TIDAK MUNCUL** jika kartu belum di-hover.
+  - Sebelum mencari tombol chat, script WAJIB dispatch `mouseenter` & `mouseover` ke elemen kartu `card`.
+- **Selector Tombol Chat (Dual Method):**
+  - Method 1: `card.querySelector('img[src*="data:image/svg+xml"], svg[class*="chat"], .arco-icon-message')`
+  - Method 2 (Bulletproof Fallback): Tombol persis di sebelah kiri tombol hijau "Select" (`selectBtn.previousElementSibling`).
 - **Judul Produk:** `.text-body-m-regular`
-- **Tombol Chat:** Gambar SVG chat `img[src*="data:image/svg+xml"]` di dalam tombol kartu.
+- **Cleanup State:** Dispatch `mouseleave` ke tombol chat dan kartu `card` setelah selesai agar kartu kembali ke tampilan normal.
 
 ### C. Popover Kontak & Ikon Mata (Eye Unmasking)
 - **Kontainer Popover:** `.arco-popover-inner-content` (ambil elemen terakhir di DOM).

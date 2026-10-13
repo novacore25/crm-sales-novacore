@@ -193,19 +193,7 @@ export default function ScrapedLeadsClient({
             const card = pendingCards[i];
             card.setAttribute('data-tnt-scraped', 'true');
 
-            // Menunggu load tombol chat KHUSUS kartu/baris ini saja jika belum muncul
-            let chatImg = card.querySelector('img[src*="data:image/svg+xml"]');
-            if (!chatImg) {
-              for (let waitLoad = 0; waitLoad < 8; waitLoad++) {
-                await wait(300);
-                chatImg = card.querySelector('img[src*="data:image/svg+xml"]');
-                if (chatImg) break;
-              }
-            }
-
-            const chatBtn = chatImg ? chatImg.closest('div') : null;
-            if (!chatBtn) continue;
-
+            // 1. Ekstrak Nama Brand terlebih dahulu
             const brandEl = card.querySelector('.bg-neutral-bg3 .arco-typography') || card.querySelector('.bg-neutral-bg3');
             let brand = '-';
             if (brandEl) {
@@ -236,11 +224,42 @@ export default function ScrapedLeadsClient({
               }
             }
 
-            // Lewati langsung jika brand ini sudah didapatkan kontaknya di sesi ini (anti dobel brand)
+            // 2. Lewati langsung jika brand ini sudah didapatkan kontaknya di sesi ini (anti dobel brand)
             if (brand && brand !== '-' && items.some((it) => it.brand.toLowerCase() === brand.toLowerCase())) {
               continue;
             }
-            if (!chatBtn) continue;
+
+            // 3. Hover KARTU produk agar redup & memunculkan overlay tombol aksi (Copy, Chat, Select)
+            card.dispatchEvent(new MouseEvent('mouseenter', { bubbles: true }));
+            card.dispatchEvent(new MouseEvent('mouseover', { bubbles: true }));
+            await wait(180);
+
+            // 4. Cari tombol chat (baik via ikon chat maupun tombol persis di sebelah kiri tombol Select)
+            let chatBtn = null;
+            for (let waitLoad = 0; waitLoad < 6; waitLoad++) {
+              let chatImg = card.querySelector('img[src*="data:image/svg+xml"], svg[class*="chat"], .arco-icon-message');
+              if (chatImg) {
+                const btn = chatImg.closest('button, div');
+                if (btn && !(btn.innerText || '').includes('Select')) {
+                  chatBtn = btn;
+                  break;
+                }
+              }
+
+              // Fallback: tombol persis di sebelah kiri tombol 'Select'
+              const selectBtn = Array.from(card.querySelectorAll('button, div')).find((el) => (el.innerText || '').trim() === 'Select');
+              if (selectBtn && selectBtn.previousElementSibling) {
+                chatBtn = selectBtn.previousElementSibling;
+                break;
+              }
+
+              await wait(200);
+            }
+
+            if (!chatBtn) {
+              card.dispatchEvent(new MouseEvent('mouseleave', { bubbles: true }));
+              continue;
+            }
 
             const titleEl = card.querySelector('.text-body-m-regular');
             let product = titleEl ? titleEl.innerText.trim() : '-';
@@ -321,6 +340,7 @@ export default function ScrapedLeadsClient({
               }
             }
             chatBtn.dispatchEvent(new MouseEvent('mouseleave', { bubbles: true }));
+            card.dispatchEvent(new MouseEvent('mouseleave', { bubbles: true }));
 
             if (brand && (phone || email)) {
               items.push({ brand, phone, email, product, category: selectedCategory });
