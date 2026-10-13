@@ -1588,13 +1588,17 @@ export default function ScrapedLeadsClient({
                 <div>
                   <span className="text-[11px] text-slate-400 font-medium block">No. WhatsApp di CRM</span>
                   <span className="font-semibold text-slate-800 block mt-0.5">
-                    {selectedLeadForMerge.matchedLead.contact ? `+${selectedLeadForMerge.matchedLead.contact}` : '(Belum ada)'}
+                    {selectedLeadForMerge.matchedLead.contact ? `+${selectedLeadForMerge.matchedLead.contact}` : (
+                      <span className="text-amber-600 font-medium">(Belum ada no WA)</span>
+                    )}
                   </span>
                 </div>
                 <div>
                   <span className="text-[11px] text-slate-400 font-medium block">Email di CRM</span>
                   <span className="font-semibold text-slate-800 block mt-0.5 break-all">
-                    {selectedLeadForMerge.matchedLead.email || '(Belum ada)'}
+                    {selectedLeadForMerge.matchedLead.email || (
+                      <span className="text-amber-600 font-medium">(Belum ada email)</span>
+                    )}
                   </span>
                 </div>
                 <div>
@@ -1618,13 +1622,27 @@ export default function ScrapedLeadsClient({
                   </span>
                 </div>
                 <div>
-                  <span className="text-[11px] text-indigo-600 font-medium block">No. WhatsApp Baru</span>
+                  <div className="flex items-center justify-between">
+                    <span className="text-[11px] text-indigo-600 font-medium block">No. WhatsApp Baru</span>
+                    {selectedLeadForMerge.matchedLead.updateType === 'need_phone' && (
+                      <span className="text-[10px] px-1.5 py-0.2 bg-emerald-100 text-emerald-800 rounded font-bold">
+                        Akan Ditambahkan
+                      </span>
+                    )}
+                  </div>
                   <span className="font-bold text-emerald-700 block mt-0.5">
                     {selectedLeadForMerge.contact ? `+${selectedLeadForMerge.contact}` : '(Belum ada)'}
                   </span>
                 </div>
                 <div>
-                  <span className="text-[11px] text-indigo-600 font-medium block">Email Baru</span>
+                  <div className="flex items-center justify-between">
+                    <span className="text-[11px] text-indigo-600 font-medium block">Email Baru</span>
+                    {selectedLeadForMerge.matchedLead.updateType === 'need_email' && (
+                      <span className="text-[10px] px-1.5 py-0.2 bg-blue-100 text-blue-800 rounded font-bold">
+                        Akan Ditambahkan
+                      </span>
+                    )}
+                  </div>
                   <span className="font-bold text-indigo-900 block mt-0.5 break-all">
                     {selectedLeadForMerge.email || '(Belum ada)'}
                   </span>
