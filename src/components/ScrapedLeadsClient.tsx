@@ -368,7 +368,7 @@ export default function ScrapedLeadsClient({
     }
   };
 
-  // Aksi Hapus
+  // Aksi Hapus Banyak (Bulk)
   const handleDelete = async () => {
     if (!selectedIds.size) return;
     if (!confirm(`Hapus ${selectedIds.size} leads terpilih secara permanen dari penampungan?`)) return;
@@ -380,6 +380,23 @@ export default function ScrapedLeadsClient({
       setSelectedIds(new Set());
     } catch {
       toast.error('Gagal menghapus leads');
+    }
+  };
+
+  // Aksi Hapus Satuan (Single)
+  const handleDeleteSingle = async (id: string, brandName: string) => {
+    if (!confirm(`Hapus lead "${brandName}" dari penampungan?`)) return;
+    try {
+      await deleteScrapedLeads([id]);
+      toast.success(`Lead "${brandName}" berhasil dihapus`);
+      setLeadsList((prev) => prev.filter((l) => l.id !== id));
+      setSelectedIds((prev) => {
+        const next = new Set(prev);
+        next.delete(id);
+        return next;
+      });
+    } catch {
+      toast.error('Gagal menghapus lead');
     }
   };
 
@@ -525,10 +542,10 @@ export default function ScrapedLeadsClient({
 
             <button
               onClick={handleDelete}
-              className="px-3 py-2 bg-rose-100 hover:bg-rose-200 text-rose-700 rounded-lg text-sm font-semibold flex items-center gap-1.5 transition-all"
+              className="px-3.5 py-2 bg-rose-600 hover:bg-rose-700 text-white rounded-lg text-sm font-bold flex items-center gap-1.5 shadow-sm transition-all"
             >
               <Trash2 className="w-4 h-4" />
-              <span>Hapus</span>
+              <span>Hapus ({selectedIds.size})</span>
             </button>
           </div>
         </div>
@@ -541,13 +558,13 @@ export default function ScrapedLeadsClient({
             <thead>
               <tr className="bg-slate-50 border-b border-slate-200 text-slate-600 font-semibold text-xs tracking-wider uppercase">
                 <th className="p-4 w-12 text-center">
-                  <button onClick={toggleSelectAll} className="text-slate-400 hover:text-slate-600">
-                    {selectedIds.size > 0 && selectedIds.size === filteredLeads.length ? (
-                      <CheckSquare className="w-4 h-4 text-indigo-600" />
-                    ) : (
-                      <Square className="w-4 h-4" />
-                    )}
-                  </button>
+                  <input
+                    type="checkbox"
+                    checked={filteredLeads.length > 0 && selectedIds.size === filteredLeads.length}
+                    onChange={toggleSelectAll}
+                    className="w-4 h-4 rounded text-indigo-600 focus:ring-indigo-500 border-slate-300 cursor-pointer"
+                    title="Pilih Semua (Centang Semua)"
+                  />
                 </th>
                 <th className="py-3 px-4">Brand</th>
                 <th className="py-3 px-4">Kontak WhatsApp</th>
@@ -576,16 +593,13 @@ export default function ScrapedLeadsClient({
                       className={`hover:bg-slate-50/80 transition-colors ${isSelected ? 'bg-indigo-50/40' : ''}`}
                     >
                       <td className="p-4 text-center">
-                        <button
-                          onClick={() => toggleSelectOne(item.id)}
-                          className="text-slate-400 hover:text-slate-600"
-                        >
-                          {isSelected ? (
-                            <CheckSquare className="w-4 h-4 text-indigo-600" />
-                          ) : (
-                            <Square className="w-4 h-4" />
-                          )}
-                        </button>
+                        <input
+                          type="checkbox"
+                          checked={isSelected}
+                          onChange={() => toggleSelectOne(item.id)}
+                          className="w-4 h-4 rounded text-indigo-600 focus:ring-indigo-500 border-slate-300 cursor-pointer"
+                          title="Pilih untuk ditarik atau dihapus"
+                        />
                       </td>
                       <td className="py-3 px-4 text-slate-900">
                         <div className="font-bold">{item.brandName}</div>
@@ -660,35 +674,46 @@ export default function ScrapedLeadsClient({
                         </div>
                       </td>
                       <td className="py-3 px-4 text-center">
-                        {item.status === 'pending' && (
-                          <div className="flex items-center justify-center gap-1.5">
-                            {isMatched ? (
-                              <button
-                                onClick={() => {
-                                  setSelectedLeadForMerge(item);
-                                  setIsMergeModalOpen(true);
-                                }}
-                                className="px-2.5 py-1 bg-purple-600 hover:bg-purple-700 text-white rounded-lg text-xs font-semibold flex items-center gap-1 shadow-sm transition-all"
-                                title="Gabungkan nomor kontak ini ke lead yang sudah ada"
-                              >
-                                <GitMerge className="w-3 h-3" />
-                                <span>Gabung Kontak</span>
-                              </button>
-                            ) : (
-                              <button
-                                onClick={() => {
-                                  setSelectedIds(new Set([item.id]));
-                                  if (item.category) setSelectedCategory(item.category);
-                                  setIsPromoteModalOpen(true);
-                                }}
-                                className="px-2.5 py-1 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-semibold flex items-center gap-1 shadow-sm transition-all"
-                              >
-                                <UserPlus className="w-3 h-3" />
-                                <span>Tarik Baru</span>
-                              </button>
-                            )}
-                          </div>
-                        )}
+                        <div className="flex items-center justify-center gap-1.5">
+                          {item.status === 'pending' && (
+                            <>
+                              {isMatched ? (
+                                <button
+                                  onClick={() => {
+                                    setSelectedLeadForMerge(item);
+                                    setIsMergeModalOpen(true);
+                                  }}
+                                  className="px-2.5 py-1 bg-purple-600 hover:bg-purple-700 text-white rounded-lg text-xs font-semibold flex items-center gap-1 shadow-sm transition-all"
+                                  title="Gabungkan nomor kontak ini ke lead yang sudah ada"
+                                >
+                                  <GitMerge className="w-3 h-3" />
+                                  <span>Gabung Kontak</span>
+                                </button>
+                              ) : (
+                                <button
+                                  onClick={() => {
+                                    setSelectedIds(new Set([item.id]));
+                                    if (item.category) setSelectedCategory(item.category);
+                                    setIsPromoteModalOpen(true);
+                                  }}
+                                  className="px-2.5 py-1 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-semibold flex items-center gap-1 shadow-sm transition-all"
+                                  title="Tarik ke Leads Utama"
+                                >
+                                  <UserPlus className="w-3 h-3" />
+                                  <span>Tarik Baru</span>
+                                </button>
+                              )}
+                            </>
+                          )}
+
+                          <button
+                            onClick={() => handleDeleteSingle(item.id, item.brandName)}
+                            className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-all"
+                            title="Hapus lead ini dari penampungan"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
                       </td>
                     </tr>
                   );
