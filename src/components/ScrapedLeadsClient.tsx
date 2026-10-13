@@ -64,10 +64,9 @@ export default function ScrapedLeadsClient({
     const origin = typeof window !== 'undefined' ? window.location.origin : 'https://crm-sales.banzilla.my.id';
     const apiUrl = `${origin}/api/scraped-leads`;
 
-    return `javascript:(async function(){
-      const wait = ms => new Promise(r => setTimeout(r, ms));
+    const code = `(async function(){
+      const wait = (ms) => new Promise((r) => setTimeout(r, ms));
 
-      // 1. Deteksi Kategori yang dipilih user di TikTok Shop
       const getCategory = async () => {
         const cascader = document.querySelector('[data-tid="m4b_cascader"], .arco-cascader');
         if (!cascader) return null;
@@ -77,7 +76,6 @@ export default function ScrapedLeadsClient({
         const rawVal = (valEl.innerText || '').trim();
         if (!rawVal || rawVal.toLowerCase() === 'category') return null;
 
-        // Hover ke cascader/value untuk memunculkan tooltip berisi teks kategori lengkap
         let fullText = '';
         const hoverTarget = cascader.querySelector('.arco-tooltip-open') || valEl || cascader;
         hoverTarget.dispatchEvent(new MouseEvent('mouseenter', { bubbles: true }));
@@ -93,11 +91,9 @@ export default function ScrapedLeadsClient({
           }
         }
 
-        // Sembunyikan / tutup kembali tooltip agar layar bersih
         hoverTarget.dispatchEvent(new MouseEvent('mouseleave', { bubbles: true }));
-        document.querySelectorAll('.arco-tooltip').forEach(el => el.style.setProperty('display', 'none', 'important'));
+        document.querySelectorAll('.arco-tooltip').forEach((el) => el.style.setProperty('display', 'none', 'important'));
 
-        // Fallback jika tooltip tidak tertangkap: cek title attribute atau raw text
         if (!fullText) {
           const titleNode = cascader.querySelector('[title]');
           if (titleNode && titleNode.getAttribute('title')) {
@@ -108,7 +104,6 @@ export default function ScrapedLeadsClient({
         }
 
         if (fullText) {
-          // Ambil nama kategori yang pertama saja (sebelum '/')
           const first = fullText.split('/')[0].split('>')[0].split('\\n')[0].trim();
           if (first && first !== '...' && first.toLowerCase() !== 'category') {
             return first;
@@ -126,13 +121,19 @@ export default function ScrapedLeadsClient({
       const targetStr = prompt('Kategori: [' + selectedCategory + ']\\n\\nBerapa banyak leads yang ingin diambil?', '50');
       if (!targetStr) return;
       const targetCount = parseInt(targetStr, 10);
-      if (isNaN(targetCount) || targetCount <= 0) { alert('Jumlah tidak valid'); return; }
+      if (isNaN(targetCount) || targetCount <= 0) {
+        alert('Jumlah tidak valid');
+        return;
+      }
 
       const box = document.createElement('div');
       box.style.cssText = 'position:fixed;bottom:24px;right:24px;z-index:9999999;background:#0f172a;color:#fff;padding:16px 22px;border-radius:14px;box-shadow:0 12px 30px rgba(0,0,0,0.5);font-family:system-ui,-apple-system,sans-serif;font-size:13px;max-width:340px;line-height:1.5;border:1px solid #334155;';
       box.innerHTML = '<b>🚀 TNT CRM Scraper</b><div style="font-size:12px;color:#38bdf8;margin-top:2px;font-weight:600;">📁 ' + selectedCategory + '</div><div id="tnt-status" style="margin-top:6px;color:#94a3b8;">Menyiapkan...</div>';
       document.body.appendChild(box);
-      const update = msg => { const el = document.getElementById('tnt-status'); if(el) el.innerText = msg; };
+      const update = (msg) => {
+        const el = document.getElementById('tnt-status');
+        if (el) el.innerText = msg;
+      };
 
       try {
         update('⏳ Memulai scraping target: ' + targetCount + ' leads...');
@@ -143,11 +144,11 @@ export default function ScrapedLeadsClient({
 
         while (items.length < targetCount && idleScrolls < 4) {
           const allCards = Array.from(document.querySelectorAll('.rounded-4'));
-          const freshCards = allCards.filter(c => !c.hasAttribute('data-tnt-scraped') && c.querySelector('img[src*="data:image/svg+xml"]'));
+          const freshCards = allCards.filter((c) => !c.hasAttribute('data-tnt-scraped') && c.querySelector('img[src*="data:image/svg+xml"]'));
 
           if (!freshCards.length) {
             idleScrolls++;
-            update(\`📜 Auto-scroll ke bawah (\${items.length}/\${targetCount})...\`);
+            update('📜 Auto-scroll ke bawah (' + items.length + '/' + targetCount + ')...');
             window.scrollBy({ top: 900, behavior: 'smooth' });
             await wait(1600);
             continue;
@@ -169,7 +170,6 @@ export default function ScrapedLeadsClient({
             const titleEl = card.querySelector('.text-body-m-regular');
             let product = titleEl ? titleEl.innerText.trim() : '-';
 
-            // Buka popover
             chatBtn.dispatchEvent(new MouseEvent('mouseenter', { bubbles: true }));
             chatBtn.dispatchEvent(new MouseEvent('mouseover', { bubbles: true }));
             chatBtn.click();
@@ -177,7 +177,8 @@ export default function ScrapedLeadsClient({
 
             const allPopovers = document.querySelectorAll('.arco-popover-inner-content');
             const popover = allPopovers[allPopovers.length - 1];
-            let phone = '', email = '';
+            let phone = '';
+            let email = '';
 
             if (popover) {
               const eye = popover.querySelector('.arco-icon-eye_invisible, svg[class*="eye"]');
@@ -206,7 +207,6 @@ export default function ScrapedLeadsClient({
                 }
               }
 
-              // Tutup dan bersihkan popover kartu ini agar layar tetap bersih
               if (popover.closest('.arco-trigger')) {
                 popover.closest('.arco-trigger').style.setProperty('display', 'none', 'important');
               }
@@ -217,15 +217,14 @@ export default function ScrapedLeadsClient({
               items.push({ brand, phone, email, product, category: selectedCategory });
             }
 
-            update(\`[\${items.length}/\${targetCount}] \${brand} (\${phone || email})\`);
+            update('[' + items.length + '/' + targetCount + '] ' + brand + ' (' + (phone || email) + ')');
             await wait(250);
           }
         }
 
-        // Pembersihan total popover yang tersisa di layar
-        document.querySelectorAll('.arco-trigger.arco-popover').forEach(el => el.style.setProperty('display', 'none', 'important'));
+        document.querySelectorAll('.arco-trigger.arco-popover').forEach((el) => el.style.setProperty('display', 'none', 'important'));
 
-        update(\`📡 Mengirim \${items.length} leads ke server CRM...\`);
+        update('📡 Mengirim ' + items.length + ' leads ke server CRM...');
         const res = await fetch('${apiUrl}', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -235,17 +234,25 @@ export default function ScrapedLeadsClient({
 
         if (resData.success) {
           box.style.background = '#065f46';
-          box.innerHTML = \`<b>✅ Sukses Mengambil \${items.length} Leads!</b><div style="margin-top:4px;">\${resData.message}</div>\`;
+          box.innerHTML = '<b>✅ Sukses Mengambil ' + items.length + ' Leads!</b><div style="margin-top:4px;">' + resData.message + '</div>';
         } else {
           box.style.background = '#991b1b';
-          box.innerHTML = \`<b>❌ Gagal Kirim</b><div style="margin-top:4px;">\${resData.error || 'Terjadi kendala'}</div>\`;
+          box.innerHTML = '<b>❌ Gagal Kirim</b><div style="margin-top:4px;">' + (resData.error || 'Terjadi kendala') + '</div>';
         }
       } catch (err) {
         box.style.background = '#991b1b';
-        box.innerHTML = \`<b>❌ Error</b><div>\${err.message}</div>\`;
+        box.innerHTML = '<b>❌ Error</b><div>' + err.message + '</div>';
       }
       setTimeout(() => box.remove(), 7000);
-    })();`;
+    })()`;
+
+    // Minifikasi total: buang baris baru dan spasi berlebih menjadi 1 baris utuh
+    const minified = code
+      .replace(/[\r\n]+/g, ' ')
+      .replace(/\s{2,}/g, ' ')
+      .trim();
+
+    return 'javascript:' + minified;
   }, []);
 
   // Pasang href langsung ke DOM via ref agar tidak diblokir/disanitasi oleh React
