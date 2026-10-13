@@ -149,7 +149,7 @@ export default function ScrapedLeadsClient({
         stopBtn.onclick = () => { isStopped = true; stopBtn.innerText = '⏳ Menghentikan...'; };
         box.appendChild(stopBtn);
 
-        while (items.length < targetCount && idleScrolls < 14 && !isStopped) {
+        while (items.length < targetCount && idleScrolls < 35 && !isStopped) {
           const isSpinning = Boolean(document.querySelector('.arco-spin-loading, [class*="spin-loading"]'));
           if (isSpinning) {
             update('⏳ Menunggu TikTok selesai memuat baris produk...');
@@ -162,25 +162,64 @@ export default function ScrapedLeadsClient({
 
           if (!pendingCards.length) {
             idleScrolls++;
-            update('📜 Mencari produk baru (' + items.length + '/' + targetCount + ' leads, scroll ke-' + idleScrolls + ')...');
-            window.scrollBy({ top: 1600, behavior: 'smooth' });
-            window.scrollTo({ top: document.body.scrollHeight, behavior: 'smooth' });
+            update('🔍 [' + items.length + '/' + targetCount + ' leads] Gas cari produk baru (Scroll/Halaman ke-' + idleScrolls + ')...');
+
+            // 1. Cek tombol pagination berikutnya (Next Page) Arco Design
+            const arcoNext = document.querySelector(
+              '.arco-pagination-item-next:not(.arco-pagination-item-disabled), ' +
+              '.arco-pagination-next:not(.arco-pagination-disabled), ' +
+              'li[class*="pagination-item-next"]:not([class*="disabled"]), ' +
+              'button[aria-label*="next" i]:not([disabled]), ' +
+              '.arco-pagination .arco-icon-right, ' +
+              '[aria-label*="Next" i]:not([disabled])'
+            );
+
+            // Cek juga tombol nomor halaman setelah halaman aktif (1 -> 2 -> 3)
+            const activePageItem = document.querySelector('.arco-pagination-item-active');
+            let nextNumItem = null;
+            if (activePageItem && activePageItem.nextElementSibling) {
+              const sib = activePageItem.nextElementSibling;
+              if (!sib.classList.contains('arco-pagination-item-disabled') && !sib.hasAttribute('disabled')) {
+                nextNumItem = sib;
+              }
+            }
+
+            const pageBtn = arcoNext || nextNumItem;
+            if (pageBtn) {
+              update('➡️ Membuka halaman berikutnya (' + items.length + '/' + targetCount + ' leads)...');
+              const clickTarget = pageBtn.querySelector('button, a, span, svg') || pageBtn;
+              ['mouseenter', 'mouseover', 'mousedown', 'mouseup', 'click'].forEach((evt) => {
+                try {
+                  clickTarget.dispatchEvent(new MouseEvent(evt, { bubbles: true }));
+                } catch(e) {}
+              });
+              try {
+                if (typeof clickTarget.click === 'function') clickTarget.click();
+                if (typeof pageBtn.click === 'function' && pageBtn !== clickTarget) pageBtn.click();
+              } catch(e) {}
+              window.scrollTo({ top: 350, behavior: 'instant' });
+              await wait(1800);
+              continue;
+            }
+
+            // 2. Jika tidak ada tombol pagination (infinite scroll), gulir layar ke bawah secara agresif
+            window.scrollBy({ top: 1800, behavior: 'instant' });
+            window.scrollTo({ top: document.body.scrollHeight, behavior: 'instant' });
+            document.documentElement.scrollTop = document.documentElement.scrollHeight;
+            document.body.scrollTop = document.body.scrollHeight;
+            window.dispatchEvent(new Event('scroll', { bubbles: true }));
 
             const scrollables = Array.from(document.querySelectorAll('*')).filter((el) => {
               const ov = window.getComputedStyle(el).overflowY;
               return (ov === 'auto' || ov === 'scroll') && el.scrollHeight > el.clientHeight;
             });
             for (const el of scrollables) {
-              el.scrollTop += 1600;
-              if (idleScrolls >= 3) el.scrollTop = el.scrollHeight;
+              el.scrollTop += 1800;
+              if (idleScrolls >= 2) el.scrollTop = el.scrollHeight;
+              el.dispatchEvent(new Event('scroll', { bubbles: true }));
             }
 
-            const nextBtn = document.querySelector('.arco-pagination-next:not(.arco-pagination-disabled), button[aria-label*="next" i]:not([disabled])');
-            if (nextBtn) {
-              try { nextBtn.click(); } catch(e){}
-            }
-
-            await wait(1800);
+            await wait(1600);
             continue;
           }
 
@@ -197,6 +236,7 @@ export default function ScrapedLeadsClient({
 
           for (let i = 0; i < pendingCards.length && items.length < targetCount && !isStopped; i++) {
             const card = pendingCards[i];
+            card.setAttribute('data-tnt-scraped', 'true');
 
             // Jika kartu di baris ini masih loading / skeleton, tunggu sampai tombol chat muncul
             let chatImg = card.querySelector('img[src*="data:image/svg+xml"]');
@@ -210,17 +250,14 @@ export default function ScrapedLeadsClient({
             }
 
             const chatBtn = chatImg ? chatImg.closest('div') : null;
-            if (!chatBtn) {
-              card.setAttribute('data-tnt-scraped', 'true');
-              continue;
-            }
+            if (!chatBtn) continue;
 
             const brandEl = card.querySelector('.bg-neutral-bg3 .arco-typography') || card.querySelector('.bg-neutral-bg3');
             let brand = brandEl ? (brandEl.getAttribute('title') || brandEl.innerText.split('(')[0]).trim() : '-';
 
-            // Lewati langsung jika brand ini sudah didapatkan kontaknya di sesi ini (anti dobel brand)
+            // Lewati langsung jika brand ini sudah didapatkan kontaknya di sesi ini (anti dobel brand), gas cari produk berikutnya
             if (brand && brand !== '-' && items.some((it) => it.brand.toLowerCase() === brand.toLowerCase())) {
-              card.setAttribute('data-tnt-scraped', 'true');
+              update('⏩ Lewati dobel: ' + brand + ' (' + items.length + '/' + targetCount + ' leads)');
               continue;
             }
             if (!chatBtn) continue;
@@ -306,7 +343,6 @@ export default function ScrapedLeadsClient({
             chatBtn.dispatchEvent(new MouseEvent('mouseleave', { bubbles: true }));
 
             if (brand && (phone || email)) {
-              card.setAttribute('data-tnt-scraped', 'true');
               items.push({ brand, phone, email, product, category: selectedCategory });
 
               try {
@@ -315,8 +351,6 @@ export default function ScrapedLeadsClient({
                   navigator.clipboard.writeText(JSON.stringify(items));
                 }
               } catch(e) {}
-            } else if (!popover || (!popover.innerText.includes('*') && !popover.querySelector('.arco-icon-eye_invisible, svg[class*="eye"]'))) {
-              card.setAttribute('data-tnt-scraped', 'true');
             }
 
             update('[' + items.length + '/' + targetCount + '] ' + brand + ' (' + (phone || email) + ')');

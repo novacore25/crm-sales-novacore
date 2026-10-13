@@ -122,18 +122,18 @@ description: Scrapes brand names, product titles, unmasked WhatsApp numbers, and
 
 ---
 
-## 4. Kecepatan & Anti Duplikat Brand (5x Speedup)
+## 4. Kecepatan, Anti Duplikat Brand, & Pemenuhan Target 100%
 
 Di TikTok Shop Product Marketplace, beberapa produk yang berdekatan seringkali berasal dari toko/brand yang sama (misal 5 produk Garnier).
-- **Aturan:** 1 sesi scraping hanya memerlukan 1 kontak per brand.
-- **Logika:**
+- **Aturan Bisnis:** 1 sesi scraping hanya memerlukan 1 kontak unik per brand.
+- **Logika Lewati Duplikat:**
   ```javascript
   if (brand && items.some(it => it.brand.toLowerCase() === brand.toLowerCase())) {
-    card.setAttribute('data-tnt-scraped', 'true');
     continue; // Lewati seketika dalam 1ms, jangan buka jendela chat
   }
   ```
-  Ini menghemat 1-2 detik per kartu duplikat dan mencegah dobel brand di database.
+- **Pemenuhan Target Penuh (Gas Terus Sampai Target):**
+  Jika user meminta 50 leads dan menemukan duplikat di halaman 1, scraper **TIDAK BOLEH BERHENTI**. Scraper otomatis berpindah ke halaman berikutnya via pagination Arco Design (`.arco-pagination-item-next`) atau deep scroll sampai jumlah `items.length` benar-benar mencapai 50 leads unik yang valid.
 
 ---
 
