@@ -137,12 +137,20 @@ export default function ScrapedLeadsClient({
 
       try {
         update('⏳ Memulai scraping target: ' + targetCount + ' leads...');
-        await wait(1000);
+        await wait(600);
 
         const items = [];
         let idleScrolls = 0;
+        let isStopped = false;
 
-        while (items.length < targetCount && idleScrolls < 4) {
+        // Pasang tombol Stop & Simpan Lebih Awal
+        const stopBtn = document.createElement('button');
+        stopBtn.innerText = '⏹️ Stop & Simpan Sekarang';
+        stopBtn.style.cssText = 'margin-top:8px;background:#334155;color:#f1f5f9;border:1px solid #475569;border-radius:6px;padding:4px 10px;font-size:11px;cursor:pointer;width:100%;font-weight:600;';
+        stopBtn.onclick = () => { isStopped = true; stopBtn.innerText = '⏳ Menghentikan...'; };
+        box.appendChild(stopBtn);
+
+        while (items.length < targetCount && idleScrolls < 4 && !isStopped) {
           const allCards = Array.from(document.querySelectorAll('.rounded-4'));
           const freshCards = allCards.filter((c) => !c.hasAttribute('data-tnt-scraped') && c.querySelector('img[src*="data:image/svg+xml"]'));
 
@@ -150,13 +158,13 @@ export default function ScrapedLeadsClient({
             idleScrolls++;
             update('📜 Auto-scroll ke bawah (' + items.length + '/' + targetCount + ')...');
             window.scrollBy({ top: 900, behavior: 'smooth' });
-            await wait(1600);
+            await wait(1200);
             continue;
           }
 
           idleScrolls = 0;
 
-          for (let i = 0; i < freshCards.length && items.length < targetCount; i++) {
+          for (let i = 0; i < freshCards.length && items.length < targetCount && !isStopped; i++) {
             const card = freshCards[i];
             card.setAttribute('data-tnt-scraped', 'true');
 
@@ -173,7 +181,7 @@ export default function ScrapedLeadsClient({
             chatBtn.dispatchEvent(new MouseEvent('mouseenter', { bubbles: true }));
             chatBtn.dispatchEvent(new MouseEvent('mouseover', { bubbles: true }));
             chatBtn.click();
-            await wait(350);
+            await wait(220);
 
             const allPopovers = document.querySelectorAll('.arco-popover-inner-content');
             const popover = allPopovers[allPopovers.length - 1];
@@ -184,8 +192,9 @@ export default function ScrapedLeadsClient({
               const eye = popover.querySelector('.arco-icon-eye_invisible, svg[class*="eye"]');
               if (eye) {
                 eye.dispatchEvent(new MouseEvent('click', { bubbles: true }));
-                for (let poll = 0; poll < 16; poll++) {
-                  await wait(45);
+                // Polling adaptif sangat cepat (cek per 35ms)
+                for (let poll = 0; poll < 18; poll++) {
+                  await wait(35);
                   const pTxt = popover.innerText;
                   if ((pTxt.includes('+62') || pTxt.includes('ID 08') || pTxt.includes('@')) && !pTxt.includes('*')) {
                     break;
@@ -217,10 +226,18 @@ export default function ScrapedLeadsClient({
 
             if (brand && (phone || email)) {
               items.push({ brand, phone, email, product, category: selectedCategory });
+
+              // Auto-save cadangan ke localStorage browser secara real-time
+              try {
+                localStorage.setItem('tnt_scraped_backup', JSON.stringify(items));
+                if (items.length % 5 === 0) {
+                  navigator.clipboard.writeText(JSON.stringify(items));
+                }
+              } catch(e) {}
             }
 
             update('[' + items.length + '/' + targetCount + '] ' + brand + ' (' + (phone || email) + ')');
-            await wait(120);
+            await wait(60);
           }
         }
 
@@ -231,8 +248,15 @@ export default function ScrapedLeadsClient({
           await navigator.clipboard.writeText(JSON.stringify(items));
         } catch(e){}
 
+        if (items.length === 0) {
+          box.style.background = '#334155';
+          box.innerHTML = '<b>⚠️ Tidak ada data baru</b><div style="font-size:12px;margin-top:4px;">Semua kartu yang terlihat sudah pernah ditarik sebelumnya.</div>';
+          setTimeout(() => box.remove(), 4000);
+          return;
+        }
+
         box.style.background = '#1e1b4b';
-        box.innerHTML = '<b>🎉 Sukses Ambil ' + items.length + ' Leads!</b><div style="font-size:12px;color:#c7d2fe;margin-top:4px;">Data tersalin di clipboard. Klik tombol di bawah untuk membuka & menyimpan ke CRM:</div><button id="tnt-crm-btn" style="margin-top:10px;width:100%;padding:10px 14px;background:#4f46e5;color:#fff;border:none;border-radius:10px;font-weight:bold;cursor:pointer;font-size:13px;">🚀 Buka & Simpan ke CRM</button>';
+        box.innerHTML = '<b>🎉 Sukses Ambil ' + items.length + ' Leads!</b><div style="font-size:12px;color:#c7d2fe;margin-top:4px;">Tersalin aman di clipboard & memori. Klik tombol di bawah untuk membuka & menyimpan ke CRM:</div><button id="tnt-crm-btn" style="margin-top:10px;width:100%;padding:10px 14px;background:#4f46e5;color:#fff;border:none;border-radius:10px;font-weight:bold;cursor:pointer;font-size:13px;">🚀 Buka & Simpan ke CRM (' + items.length + ' Leads)</button>';
 
         const sendToCRM = () => {
           const btn = document.getElementById('tnt-crm-btn');
