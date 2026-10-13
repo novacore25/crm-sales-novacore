@@ -1,6 +1,6 @@
 'use server';
 
-import { and, desc, eq, ilike, inArray, or, sql } from 'drizzle-orm';
+import { and, desc, eq, ilike, inArray, isNull, or, sql } from 'drizzle-orm';
 import { revalidatePath } from 'next/cache';
 import { z } from 'zod';
 
@@ -71,6 +71,25 @@ export async function getScrapedLeads(options?: {
         ilike(scrapedLeads.productName, search),
       ),
     );
+  }
+
+  // Bersihkan otomatis baris sampah hasil unmasking prematur (tanpa nomor WA dan email terpotong/bintang)
+  try {
+    await db
+      .delete(scrapedLeads)
+      .where(
+        and(
+          eq(scrapedLeads.status, 'pending'),
+          or(isNull(scrapedLeads.contact), eq(scrapedLeads.contact, ''), eq(scrapedLeads.contact, '-')),
+          or(
+            isNull(scrapedLeads.email),
+            sql`${scrapedLeads.email} ~* '^[a-z0-9]{1,2}@'`,
+            sql`${scrapedLeads.email} LIKE '%*%'`,
+          ),
+        ),
+      );
+  } catch (err) {
+    console.error('Auto clean junk leads error:', err);
   }
 
   // 1. Ambil data penampungan
@@ -179,6 +198,21 @@ export async function saveScrapedBatch(
         continue;
       }
 
+      // Validasi ketat anti-data sampah: tolak jika ada tanda bintang '*'
+      if (phone.includes('*') || email.includes('*')) {
+        skippedCount++;
+        continue;
+      }
+
+      // Tolak jika kontak kosong dan email terpotong (misal "i@domain.com")
+      if (!phone && email) {
+        const localPart = email.split('@')[0] || '';
+        if (localPart.length <= 2) {
+          skippedCount++;
+          continue;
+        }
+      }
+
       // Kunci unik anti-duplikat dalam 1 batch
       const dedupKey = `${brand.toLowerCase()}|${phone}|${email}`;
       if (batchSeen.has(dedupKey)) {
@@ -187,22 +221,37 @@ export async function saveScrapedBatch(
       }
       batchSeen.add(dedupKey);
 
-      // Cek apakah di database sudah ada baris yang Brand + Phone + Email ketiganya sama persis
-      const existing = await db
-        .select({ id: scrapedLeads.id })
+      // Cek apakah di database sudah ada baris pending untuk brand yang sama
+      const existingBrand = await db
+        .select()
         .from(scrapedLeads)
         .where(
           and(
             sql`LOWER(${scrapedLeads.brandName}) = ${brand.toLowerCase()}`,
-            eq(scrapedLeads.contact, phone),
-            email
-              ? sql`LOWER(COALESCE(${scrapedLeads.email}, '')) = ${email}`
-              : sql`COALESCE(${scrapedLeads.email}, '') = ''`,
+            eq(scrapedLeads.status, 'pending'),
           ),
         )
         .limit(1);
 
-      if (existing.length > 0) {
+      if (existingBrand.length > 0) {
+        const ex = existingBrand[0];
+        // Jika baris lama di DB belum punya kontak WA lengkap tapi data baru punya nomor WA lengkap:
+        // Update baris lama tersebut agar terisi nomor WA & email lengkap (tidak membuat baris dobel)
+        if ((!ex.contact || ex.contact === '-') && phone) {
+          await db
+            .update(scrapedLeads)
+            .set({
+              contact: phone,
+              email: email || ex.email,
+              productName: product || ex.productName,
+              category: category || ex.category,
+              updatedAt: new Date(),
+            })
+            .where(eq(scrapedLeads.id, ex.id));
+          insertedCount++;
+          continue;
+        }
+        // Jika data lama sudah lengkap, lewati agar tidak dobel
         skippedCount++;
         continue;
       }

@@ -149,15 +149,18 @@ export default function ScrapedLeadsClient({
         stopBtn.onclick = () => { isStopped = true; stopBtn.innerText = '⏳ Menghentikan...'; };
         box.appendChild(stopBtn);
 
-        while (items.length < targetCount && idleScrolls < 4 && !isStopped) {
+        while (items.length < targetCount && idleScrolls < 8 && !isStopped) {
           const allCards = Array.from(document.querySelectorAll('.rounded-4'));
           const freshCards = allCards.filter((c) => !c.hasAttribute('data-tnt-scraped') && c.querySelector('img[src*="data:image/svg+xml"]'));
 
           if (!freshCards.length) {
             idleScrolls++;
-            update('📜 Auto-scroll ke bawah (' + items.length + '/' + targetCount + ')...');
-            window.scrollBy({ top: 900, behavior: 'smooth' });
-            await wait(1200);
+            update('📜 Memuat produk baru dari TikTok (' + items.length + '/' + targetCount + ' leads)...');
+            window.scrollBy({ top: 1200, behavior: 'smooth' });
+            window.scrollTo({ top: document.body.scrollHeight, behavior: 'smooth' });
+            const scrollContainer = document.querySelector('.arco-layout-content, main, [class*="product-list"]');
+            if (scrollContainer) scrollContainer.scrollTop += 1200;
+            await wait(1400);
             continue;
           }
 
@@ -165,14 +168,19 @@ export default function ScrapedLeadsClient({
 
           for (let i = 0; i < freshCards.length && items.length < targetCount && !isStopped; i++) {
             const card = freshCards[i];
-            card.setAttribute('data-tnt-scraped', 'true');
+
+            const brandEl = card.querySelector('.bg-neutral-bg3 .arco-typography') || card.querySelector('.bg-neutral-bg3');
+            let brand = brandEl ? (brandEl.getAttribute('title') || brandEl.innerText.split('(')[0]).trim() : '-';
+
+            // Lewati langsung jika brand ini sudah didapatkan kontaknya di sesi ini (hemat waktu 5x lipat & anti dobel brand)
+            if (brand && brand !== '-' && items.some((it) => it.brand.toLowerCase() === brand.toLowerCase())) {
+              card.setAttribute('data-tnt-scraped', 'true');
+              continue;
+            }
 
             const chatImg = card.querySelector('img[src*="data:image/svg+xml"]');
             const chatBtn = chatImg ? chatImg.closest('div') : null;
             if (!chatBtn) continue;
-
-            const brandEl = card.querySelector('.bg-neutral-bg3 .arco-typography') || card.querySelector('.bg-neutral-bg3');
-            let brand = brandEl ? (brandEl.getAttribute('title') || brandEl.innerText.split('(')[0]).trim() : '-';
 
             const titleEl = card.querySelector('.text-body-m-regular');
             let product = titleEl ? titleEl.innerText.trim() : '-';
@@ -180,7 +188,7 @@ export default function ScrapedLeadsClient({
             chatBtn.dispatchEvent(new MouseEvent('mouseenter', { bubbles: true }));
             chatBtn.dispatchEvent(new MouseEvent('mouseover', { bubbles: true }));
             chatBtn.click();
-            await wait(220);
+            await wait(250);
 
             const allPopovers = document.querySelectorAll('.arco-popover-inner-content');
             const popover = allPopovers[allPopovers.length - 1];
@@ -188,30 +196,40 @@ export default function ScrapedLeadsClient({
             let email = '';
 
             if (popover) {
-              const eye = popover.querySelector('.arco-icon-eye_invisible, svg[class*="eye"]');
+              const eye = popover.querySelector('.arco-icon-eye_invisible, svg[class*="eye"], .arco-icon-hover');
               if (eye) {
-                eye.dispatchEvent(new MouseEvent('click', { bubbles: true }));
-                for (let poll = 0; poll < 18; poll++) {
-                  await wait(35);
+                const eyeBtn = eye.closest('.arco-icon-hover, button, span') || eye;
+                eyeBtn.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+                eyeBtn.click();
+
+                for (let poll = 0; poll < 35; poll++) {
+                  await wait(45);
                   const pTxt = popover.innerText;
-                  if ((pTxt.includes('+62') || pTxt.includes('ID 08') || pTxt.includes('@')) && !pTxt.includes('*')) {
-                    break;
+                  if (!pTxt.includes('*')) break;
+                  if (poll === 10) {
+                    eyeBtn.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+                    eyeBtn.click();
                   }
                 }
               }
 
               const txt = popover.innerText;
-              const mMail = txt.match(/[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}/);
-              if (mMail && !mMail[0].includes('*')) email = mMail[0];
 
-              for (const line of txt.split('\\n')) {
-                if (line.includes('+62') || line.includes('ID 08') || line.includes('ID +62')) {
-                  let num = line.replace(/[^\\d]/g, '');
-                  if (num.startsWith('08')) num = '628' + num.slice(2);
-                  if (num.startsWith('6208')) num = '628' + num.slice(4);
-                  if (num.startsWith('628') && num.length >= 10 && !num.includes('*')) {
-                    phone = num;
-                    break;
+              // Syarat mutlak: hanya ambil data jika teks di popover TIDAK lagi mengandung bintang '*'
+              if (!txt.includes('*')) {
+                for (const line of txt.split('\\n')) {
+                  if (line.includes('@')) {
+                    const mMail = line.match(/[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}/);
+                    if (mMail) email = mMail[0];
+                  }
+                  if (line.includes('+62') || line.includes('ID 08') || line.includes('ID +62') || line.startsWith('08')) {
+                    let num = line.replace(/[^\\d]/g, '');
+                    if (num.startsWith('08')) num = '628' + num.slice(2);
+                    if (num.startsWith('6208')) num = '628' + num.slice(4);
+                    if (num.startsWith('628') && num.length >= 10) {
+                      phone = num;
+                      break;
+                    }
                   }
                 }
               }
@@ -223,6 +241,7 @@ export default function ScrapedLeadsClient({
             chatBtn.dispatchEvent(new MouseEvent('mouseleave', { bubbles: true }));
 
             if (brand && (phone || email)) {
+              card.setAttribute('data-tnt-scraped', 'true');
               items.push({ brand, phone, email, product, category: selectedCategory });
 
               try {
@@ -231,6 +250,8 @@ export default function ScrapedLeadsClient({
                   navigator.clipboard.writeText(JSON.stringify(items));
                 }
               } catch(e) {}
+            } else if (!popover || (!popover.innerText.includes('*') && !popover.querySelector('.arco-icon-eye_invisible, svg[class*="eye"]'))) {
+              card.setAttribute('data-tnt-scraped', 'true');
             }
 
             update('[' + items.length + '/' + targetCount + '] ' + brand + ' (' + (phone || email) + ')');
