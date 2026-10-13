@@ -37,6 +37,12 @@ export const forecastStatusEnum = pgEnum('forecast_status', ['WIN', 'OPEN', 'LOS
 
 export const productEnum = pgEnum('product', ['MCN', 'TNT', 'HYPE']);
 
+export const scrapedLeadStatusEnum = pgEnum('scraped_lead_status', [
+  'pending',
+  'promoted',
+  'ignored',
+]);
+
 // ---------------------------------------------------------------------------
 // Documents (quotation / invoice)
 // ---------------------------------------------------------------------------

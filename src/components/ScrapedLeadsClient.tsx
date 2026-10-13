@@ -1,0 +1,793 @@
+'use client';
+
+import React, { useState, useMemo } from 'react';
+import { 
+  Inbox, 
+  Search, 
+  CheckSquare, 
+  Square, 
+  UserPlus, 
+  EyeOff, 
+  Trash2, 
+  ExternalLink, 
+  Phone, 
+  Mail, 
+  Sparkles, 
+  CheckCircle2, 
+  Clock, 
+  XCircle, 
+  Copy, 
+  Check, 
+  AlertCircle, 
+  GitMerge, 
+  ChevronRight,
+  ShieldAlert
+} from 'lucide-react';
+import { toast } from 'sonner';
+import type { ScrapedLeadRow } from '@/app/actions/scraped-lead-actions';
+import { 
+  promoteScrapedLeadsToMain, 
+  ignoreScrapedLeads, 
+  deleteScrapedLeads,
+  mergeScrapedLeadIntoExisting
+} from '@/app/actions/scraped-lead-actions';
+import type { UserProfile } from '@/lib/auth-users';
+
+interface ScrapedLeadsClientProps {
+  initialLeads: ScrapedLeadRow[];
+  users: UserProfile[];
+  categories: string[];
+}
+
+export default function ScrapedLeadsClient({
+  initialLeads,
+  users,
+  categories,
+}: ScrapedLeadsClientProps) {
+  const [leadsList, setLeadsList] = useState<ScrapedLeadRow[]>(initialLeads);
+  const [statusFilter, setStatusFilter] = useState<'all' | 'pending' | 'promoted' | 'ignored'>('pending');
+  const [search, setSearch] = useState('');
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [isPromoteModalOpen, setIsPromoteModalOpen] = useState(false);
+  const [isMergeModalOpen, setIsMergeModalOpen] = useState(false);
+  const [selectedLeadForMerge, setSelectedLeadForMerge] = useState<ScrapedLeadRow | null>(null);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [copiedBookmarklet, setCopiedBookmarklet] = useState(false);
+
+  // Form Tarik ke Leads Utama
+  const [selectedPic, setSelectedPic] = useState<string>(users[0]?.name || '');
+  const [selectedCategory, setSelectedCategory] = useState<string>(categories[0] || 'Beauty & Personal Care');
+  const [selectedProduct, setSelectedProduct] = useState<string>('TNT');
+
+  // Bookmarklet Super Cerdas: Auto-Scroll, Cap Stempel, Input Target Jumlah, dan Pembersihan Popover 100%
+  const bookmarkletCode = useMemo(() => {
+    const origin = typeof window !== 'undefined' ? window.location.origin : 'https://crm-sales.banzilla.my.id';
+    const apiUrl = `${origin}/api/scraped-leads`;
+
+    return `javascript:(async function(){
+      const targetStr = prompt('Berapa banyak leads yang ingin diambil?', '50');
+      if (!targetStr) return;
+      const targetCount = parseInt(targetStr, 10);
+      if (isNaN(targetCount) || targetCount <= 0) { alert('Jumlah tidak valid'); return; }
+
+      const wait = ms => new Promise(r => setTimeout(r, ms));
+      const box = document.createElement('div');
+      box.style.cssText = 'position:fixed;bottom:24px;right:24px;z-index:9999999;background:#0f172a;color:#fff;padding:16px 22px;border-radius:14px;box-shadow:0 12px 30px rgba(0,0,0,0.5);font-family:system-ui,-apple-system,sans-serif;font-size:13px;max-width:340px;line-height:1.5;border:1px solid #334155;';
+      box.innerHTML = '<b>🚀 TNT CRM Scraper</b><div id="tnt-status" style="margin-top:6px;color:#94a3b8;">Menyiapkan...</div>';
+      document.body.appendChild(box);
+      const update = msg => { const el = document.getElementById('tnt-status'); if(el) el.innerText = msg; };
+
+      try {
+        update('⏳ Memulai scraping target: ' + targetCount + ' leads...');
+        await wait(1000);
+
+        const items = [];
+        let idleScrolls = 0;
+
+        while (items.length < targetCount && idleScrolls < 4) {
+          const allCards = Array.from(document.querySelectorAll('.rounded-4'));
+          const freshCards = allCards.filter(c => !c.hasAttribute('data-tnt-scraped') && c.querySelector('img[src*="data:image/svg+xml"]'));
+
+          if (!freshCards.length) {
+            idleScrolls++;
+            update(\`📜 Auto-scroll ke bawah (\${items.length}/\${targetCount})...\`);
+            window.scrollBy({ top: 900, behavior: 'smooth' });
+            await wait(1600);
+            continue;
+          }
+
+          idleScrolls = 0;
+
+          for (let i = 0; i < freshCards.length && items.length < targetCount; i++) {
+            const card = freshCards[i];
+            card.setAttribute('data-tnt-scraped', 'true');
+
+            const chatImg = card.querySelector('img[src*="data:image/svg+xml"]');
+            const chatBtn = chatImg ? chatImg.closest('div') : null;
+            if (!chatBtn) continue;
+
+            const brandEl = card.querySelector('.bg-neutral-bg3 .arco-typography') || card.querySelector('.bg-neutral-bg3');
+            let brand = brandEl ? (brandEl.getAttribute('title') || brandEl.innerText.split('(')[0]).trim() : '-';
+
+            const titleEl = card.querySelector('.text-body-m-regular');
+            let product = titleEl ? titleEl.innerText.trim() : '-';
+
+            // Buka popover
+            chatBtn.dispatchEvent(new MouseEvent('mouseenter', { bubbles: true }));
+            chatBtn.dispatchEvent(new MouseEvent('mouseover', { bubbles: true }));
+            chatBtn.click();
+            await wait(550);
+
+            const allPopovers = document.querySelectorAll('.arco-popover-inner-content');
+            const popover = allPopovers[allPopovers.length - 1];
+            let phone = '', email = '';
+
+            if (popover) {
+              const eye = popover.querySelector('.arco-icon-eye_invisible, svg[class*="eye"]');
+              if (eye) {
+                eye.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+                await wait(700);
+                if (popover.innerText.includes('*')) {
+                  eye.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+                  await wait(700);
+                }
+              }
+
+              const txt = popover.innerText;
+              const mMail = txt.match(/[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}/);
+              if (mMail && !mMail[0].includes('*')) email = mMail[0];
+
+              for (const line of txt.split('\\n')) {
+                if (line.includes('+62') || line.includes('ID 08') || line.includes('ID +62')) {
+                  let num = line.replace(/[^\\d]/g, '');
+                  if (num.startsWith('08')) num = '628' + num.slice(2);
+                  if (num.startsWith('6208')) num = '628' + num.slice(4);
+                  if (num.startsWith('628') && num.length >= 10 && !num.includes('*')) {
+                    phone = num;
+                    break;
+                  }
+                }
+              }
+
+              // Tutup dan bersihkan popover kartu ini agar layar tetap bersih
+              if (popover.closest('.arco-trigger')) {
+                popover.closest('.arco-trigger').style.setProperty('display', 'none', 'important');
+              }
+            }
+            chatBtn.dispatchEvent(new MouseEvent('mouseleave', { bubbles: true }));
+
+            if (brand && (phone || email)) {
+              items.push({ brand, phone, email, product });
+            }
+
+            update(\`[\${items.length}/\${targetCount}] \${brand} (\${phone || email})\`);
+            await wait(250);
+          }
+        }
+
+        // Pembersihan total popover yang tersisa di layar
+        document.querySelectorAll('.arco-trigger.arco-popover').forEach(el => el.style.setProperty('display', 'none', 'important'));
+
+        update(\`📡 Mengirim \${items.length} leads ke server CRM...\`);
+        const res = await fetch('${apiUrl}', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ items, scrapedBy: 'Bookmarklet' })
+        });
+        const resData = await res.json();
+
+        if (resData.success) {
+          box.style.background = '#065f46';
+          box.innerHTML = \`<b>✅ Sukses Mengambil \${items.length} Leads!</b><div style="margin-top:4px;">\${resData.message}</div>\`;
+        } else {
+          box.style.background = '#991b1b';
+          box.innerHTML = \`<b>❌ Gagal Kirim</b><div style="margin-top:4px;">\${resData.error || 'Terjadi kendala'}</div>\`;
+        }
+      } catch (err) {
+        box.style.background = '#991b1b';
+        box.innerHTML = \`<b>❌ Error</b><div>\${err.message}</div>\`;
+      }
+      setTimeout(() => box.remove(), 7000);
+    })();`;
+  }, []);
+
+  // Filter Data
+  const filteredLeads = useMemo(() => {
+    return leadsList.filter((item) => {
+      if (statusFilter !== 'all' && item.status !== statusFilter) return false;
+      if (search) {
+        const q = search.toLowerCase();
+        const b = (item.brandName || '').toLowerCase();
+        const c = (item.contact || '').toLowerCase();
+        const e = (item.email || '').toLowerCase();
+        const p = (item.productName || '').toLowerCase();
+        const m = (item.matchedLead?.brandName || '').toLowerCase();
+        if (!b.includes(q) && !c.includes(q) && !e.includes(q) && !p.includes(q) && !m.includes(q)) return false;
+      }
+      return true;
+    });
+  }, [leadsList, statusFilter, search]);
+
+  const toggleSelectAll = () => {
+    if (selectedIds.size === filteredLeads.length) {
+      setSelectedIds(new Set());
+    } else {
+      setSelectedIds(new Set(filteredLeads.map((l) => l.id)));
+    }
+  };
+
+  const toggleSelectOne = (id: string) => {
+    const next = new Set(selectedIds);
+    if (next.has(id)) next.delete(id);
+    else next.add(id);
+    setSelectedIds(next);
+  };
+
+  // Aksi Tarik ke Leads Utama
+  const handlePromoteConfirm = async () => {
+    if (!selectedIds.size) return;
+    setIsSubmitting(true);
+    try {
+      const res = await promoteScrapedLeadsToMain({
+        scrapedLeadIds: Array.from(selectedIds),
+        picName: selectedPic,
+        category: selectedCategory,
+        productOffered: [selectedProduct],
+      });
+
+      if (res.success) {
+        toast.success(`Berhasil menarik ${res.promotedCount} leads ke database utama!`);
+        setLeadsList((prev) =>
+          prev.map((l) => (selectedIds.has(l.id) ? { ...l, status: 'promoted' } : l))
+        );
+        setSelectedIds(new Set());
+        setIsPromoteModalOpen(false);
+      } else {
+        toast.error(res.error || 'Gagal mempromosikan leads');
+      }
+    } catch {
+      toast.error('Terjadi kesalahan saat mempromosikan leads');
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  // Aksi Gabungkan Kontak ke Lead yang Sudah Ada
+  const handleMergeConfirm = async () => {
+    if (!selectedLeadForMerge || !selectedLeadForMerge.matchedLead) return;
+    setIsSubmitting(true);
+    try {
+      const res = await mergeScrapedLeadIntoExisting({
+        scrapedLeadId: selectedLeadForMerge.id,
+        targetLeadId: selectedLeadForMerge.matchedLead.id,
+      });
+
+      if (res.success) {
+        toast.success(`Kontak berhasil digabungkan ke lead ${selectedLeadForMerge.matchedLead.brandName}!`);
+        setLeadsList((prev) =>
+          prev.map((l) => (l.id === selectedLeadForMerge.id ? { ...l, status: 'promoted' } : l))
+        );
+        setIsMergeModalOpen(false);
+        setSelectedLeadForMerge(null);
+      } else {
+        toast.error(res.error || 'Gagal menggabungkan kontak');
+      }
+    } catch {
+      toast.error('Terjadi kesalahan saat menggabungkan kontak');
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  // Aksi Abaikan
+  const handleIgnore = async () => {
+    if (!selectedIds.size) return;
+    try {
+      const ids = Array.from(selectedIds);
+      await ignoreScrapedLeads(ids);
+      toast.success(`${ids.length} leads diubah statusnya menjadi diabaikan`);
+      setLeadsList((prev) =>
+        prev.map((l) => (selectedIds.has(l.id) ? { ...l, status: 'ignored' } : l))
+      );
+      setSelectedIds(new Set());
+    } catch {
+      toast.error('Gagal mengabaikan leads');
+    }
+  };
+
+  // Aksi Hapus
+  const handleDelete = async () => {
+    if (!selectedIds.size) return;
+    if (!confirm(`Hapus ${selectedIds.size} leads terpilih secara permanen dari penampungan?`)) return;
+    try {
+      const ids = Array.from(selectedIds);
+      await deleteScrapedLeads(ids);
+      toast.success(`${ids.length} leads berhasil dihapus`);
+      setLeadsList((prev) => prev.filter((l) => !selectedIds.has(l.id)));
+      setSelectedIds(new Set());
+    } catch {
+      toast.error('Gagal menghapus leads');
+    }
+  };
+
+  const copyToClipboard = () => {
+    navigator.clipboard.writeText(bookmarkletCode);
+    setCopiedBookmarklet(true);
+    toast.success('Kode Bookmarklet berhasil disalin ke clipboard!');
+    setTimeout(() => setCopiedBookmarklet(false), 3000);
+  };
+
+  return (
+    <div className="p-6 md:p-8 space-y-6 max-w-7xl mx-auto">
+      {/* Header */}
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-slate-200 pb-5">
+        <div>
+          <div className="flex items-center gap-3">
+            <div className="p-2.5 bg-indigo-50 border border-indigo-200 rounded-xl text-indigo-600">
+              <Inbox className="w-6 h-6" />
+            </div>
+            <div>
+              <h1 className="text-2xl font-bold tracking-tight text-slate-900">
+                Penampungan Leads (Staging)
+              </h1>
+              <p className="text-sm text-slate-500 mt-0.5">
+                Data leads hasil scraping marketplace sebelum disetujui dan ditarik ke database utama.
+              </p>
+            </div>
+          </div>
+        </div>
+
+        {/* Counter Badges */}
+        <div className="flex items-center gap-3">
+          <div className="px-4 py-2 bg-amber-50 border border-amber-200 rounded-xl text-amber-800 text-sm font-semibold flex items-center gap-2">
+            <Clock className="w-4 h-4 text-amber-600" />
+            <span>{leadsList.filter(l => l.status === 'pending').length} Menunggu Dipilah</span>
+          </div>
+          <div className="px-4 py-2 bg-emerald-50 border border-emerald-200 rounded-xl text-emerald-800 text-sm font-semibold flex items-center gap-2">
+            <CheckCircle2 className="w-4 h-4 text-emerald-600" />
+            <span>{leadsList.filter(l => l.status === 'promoted').length} Sudah Ditarik</span>
+          </div>
+        </div>
+      </div>
+
+      {/* Bookmarklet Tool Banner */}
+      <div className="bg-gradient-to-r from-slate-900 via-indigo-950 to-slate-900 text-white p-5 md:p-6 rounded-2xl shadow-xl border border-slate-800 flex flex-col md:flex-row items-start md:items-center justify-between gap-6">
+        <div className="space-y-2 max-w-2xl">
+          <div className="inline-flex items-center gap-2 px-2.5 py-1 rounded-full bg-indigo-500/20 text-indigo-300 text-xs font-semibold tracking-wide border border-indigo-500/30">
+            <Sparkles className="w-3.5 h-3.5" />
+            Versi Baru: Auto-Scroll & Deteksi Jumlah
+          </div>
+          <h2 className="text-lg md:text-xl font-bold text-white tracking-tight">
+            Pasang Tombol Scraper Otomatis di Browser Anda
+          </h2>
+          <p className="text-sm text-slate-300 leading-relaxed">
+            Drag tombol biru di samping ke <b>Bookmarks Bar</b> browser Chrome. Saat diklik di TikTok Shop, Anda bisa menentukan ingin ambil berapa data (misal 50 atau 100), dan skrip akan <b>otomatis scroll ke bawah</b> serta membersihkan layar kembali setelah selesai.
+          </p>
+        </div>
+
+        <div className="flex flex-col sm:flex-row items-center gap-3 w-full md:w-auto shrink-0">
+          <a
+            href={bookmarkletCode}
+            onClick={(e) => {
+              e.preventDefault();
+              toast.info('Tarik (drag) tombol ini ke baris Bookmark Chrome Anda di bagian atas layar.');
+            }}
+            className="w-full sm:w-auto px-5 py-3 bg-indigo-600 hover:bg-indigo-500 text-white font-bold rounded-xl shadow-lg shadow-indigo-600/30 flex items-center justify-center gap-2.5 transition-all cursor-grab active:cursor-grabbing border border-indigo-400"
+            title="Drag tombol ini ke bookmark bar browser Anda"
+          >
+            <span>🚀</span>
+            <span>Tarik ke Bookmark Bar</span>
+          </a>
+
+          <button
+            onClick={copyToClipboard}
+            className="w-full sm:w-auto px-4 py-3 bg-slate-800 hover:bg-slate-700 text-slate-200 font-semibold rounded-xl border border-slate-700 flex items-center justify-center gap-2 transition-colors text-sm"
+          >
+            {copiedBookmarklet ? <Check className="w-4 h-4 text-emerald-400" /> : <Copy className="w-4 h-4" />}
+            <span>{copiedBookmarklet ? 'Tersalin' : 'Salin Kode'}</span>
+          </button>
+        </div>
+      </div>
+
+      {/* Filter & Search Bar */}
+      <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm flex flex-col md:flex-row items-center justify-between gap-4">
+        {/* Tab Status */}
+        <div className="flex items-center gap-1.5 p-1 bg-slate-100 rounded-lg w-full md:w-auto">
+          {(['pending', 'promoted', 'ignored', 'all'] as const).map((tab) => (
+            <button
+              key={tab}
+              onClick={() => {
+                setStatusFilter(tab);
+                setSelectedIds(new Set());
+              }}
+              className={`flex-1 md:flex-initial px-4 py-1.5 rounded-md text-xs font-bold capitalize transition-all ${
+                statusFilter === tab
+                  ? 'bg-white text-indigo-700 shadow-sm'
+                  : 'text-slate-600 hover:text-slate-900'
+              }`}
+            >
+              {tab === 'pending' ? 'Pending' : tab === 'promoted' ? 'Sudah Ditarik' : tab === 'ignored' ? 'Diabaikan' : 'Semua'}
+            </button>
+          ))}
+        </div>
+
+        {/* Search Input */}
+        <div className="relative w-full md:w-80">
+          <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+          <input
+            type="text"
+            placeholder="Cari brand, WA, email..."
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            className="w-full pl-9 pr-4 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:bg-white transition-all text-slate-800"
+          />
+        </div>
+      </div>
+
+      {/* Batch Action Toolbar */}
+      {selectedIds.size > 0 && (
+        <div className="bg-indigo-50 border border-indigo-200 p-4 rounded-xl flex flex-wrap items-center justify-between gap-4 animate-in fade-in slide-in-from-top-2">
+          <div className="flex items-center gap-2 text-indigo-900 font-bold text-sm">
+            <CheckSquare className="w-5 h-5 text-indigo-600" />
+            <span>{selectedIds.size} leads terpilih</span>
+          </div>
+
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => setIsPromoteModalOpen(true)}
+              className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-sm font-bold flex items-center gap-2 shadow-sm transition-all"
+            >
+              <UserPlus className="w-4 h-4" />
+              <span>Tarik ke Leads Utama</span>
+            </button>
+
+            <button
+              onClick={handleIgnore}
+              className="px-3 py-2 bg-slate-200 hover:bg-slate-300 text-slate-700 rounded-lg text-sm font-semibold flex items-center gap-1.5 transition-all"
+            >
+              <EyeOff className="w-4 h-4" />
+              <span>Abaikan</span>
+            </button>
+
+            <button
+              onClick={handleDelete}
+              className="px-3 py-2 bg-rose-100 hover:bg-rose-200 text-rose-700 rounded-lg text-sm font-semibold flex items-center gap-1.5 transition-all"
+            >
+              <Trash2 className="w-4 h-4" />
+              <span>Hapus</span>
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Leads Table */}
+      <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+        <div className="overflow-x-auto">
+          <table className="w-full text-left border-collapse text-sm">
+            <thead>
+              <tr className="bg-slate-50 border-b border-slate-200 text-slate-600 font-semibold text-xs tracking-wider uppercase">
+                <th className="p-4 w-12 text-center">
+                  <button onClick={toggleSelectAll} className="text-slate-400 hover:text-slate-600">
+                    {selectedIds.size > 0 && selectedIds.size === filteredLeads.length ? (
+                      <CheckSquare className="w-4 h-4 text-indigo-600" />
+                    ) : (
+                      <Square className="w-4 h-4" />
+                    )}
+                  </button>
+                </th>
+                <th className="py-3 px-4">Brand</th>
+                <th className="py-3 px-4">Kontak WhatsApp</th>
+                <th className="py-3 px-4">Email</th>
+                <th className="py-3 px-4">Sampel Produk</th>
+                <th className="py-3 px-4">Status & Kemiripan</th>
+                <th className="py-3 px-4 text-center">Aksi Cepat</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-100">
+              {filteredLeads.length === 0 ? (
+                <tr>
+                  <td colSpan={7} className="text-center py-12 text-slate-400">
+                    <AlertCircle className="w-8 h-8 mx-auto mb-2 text-slate-300" />
+                    Tidak ada data leads pada filter ini.
+                  </td>
+                </tr>
+              ) : (
+                filteredLeads.map((item) => {
+                  const isSelected = selectedIds.has(item.id);
+                  const isMatched = !!item.matchedLead;
+
+                  return (
+                    <tr 
+                      key={item.id} 
+                      className={`hover:bg-slate-50/80 transition-colors ${isSelected ? 'bg-indigo-50/40' : ''}`}
+                    >
+                      <td className="p-4 text-center">
+                        <button
+                          onClick={() => toggleSelectOne(item.id)}
+                          className="text-slate-400 hover:text-slate-600"
+                        >
+                          {isSelected ? (
+                            <CheckSquare className="w-4 h-4 text-indigo-600" />
+                          ) : (
+                            <Square className="w-4 h-4" />
+                          )}
+                        </button>
+                      </td>
+                      <td className="py-3 px-4 font-bold text-slate-900">
+                        {item.brandName}
+                      </td>
+                      <td className="py-3 px-4">
+                        {item.contact ? (
+                          <a
+                            href={`https://wa.me/${item.contact}`}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="inline-flex items-center gap-1.5 text-emerald-600 hover:text-emerald-700 font-semibold hover:underline"
+                          >
+                            <Phone className="w-3.5 h-3.5" />
+                            <span>+{item.contact}</span>
+                            <ExternalLink className="w-3 h-3 opacity-60" />
+                          </a>
+                        ) : (
+                          <span className="text-slate-400">-</span>
+                        )}
+                      </td>
+                      <td className="py-3 px-4">
+                        {item.email ? (
+                          <a
+                            href={`mailto:${item.email}`}
+                            className="inline-flex items-center gap-1.5 text-slate-600 hover:text-slate-900"
+                          >
+                            <Mail className="w-3.5 h-3.5 text-slate-400" />
+                            <span>{item.email}</span>
+                          </a>
+                        ) : (
+                          <span className="text-slate-400">-</span>
+                        )}
+                      </td>
+                      <td className="py-3 px-4 text-slate-500 max-w-xs truncate" title={item.productName || ''}>
+                        {item.productName || '-'}
+                      </td>
+                      <td className="py-3 px-4">
+                        <div className="flex flex-col gap-1 items-start">
+                          {item.status === 'pending' && (
+                            <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-amber-50 text-amber-700 border border-amber-200">
+                              <Clock className="w-3 h-3" />
+                              Pending
+                            </span>
+                          )}
+                          {item.status === 'promoted' && (
+                            <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200">
+                              <CheckCircle2 className="w-3 h-3" />
+                              Sudah Ditarik
+                            </span>
+                          )}
+                          {item.status === 'ignored' && (
+                            <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-slate-100 text-slate-600 border border-slate-200">
+                              <XCircle className="w-3 h-3" />
+                              Diabaikan
+                            </span>
+                          )}
+
+                          {/* Deteksi Kemiripan dengan Leads Utama */}
+                          {isMatched && (
+                            <div className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md bg-purple-50 text-purple-700 border border-purple-200 text-[11px] font-medium" title={item.matchedLead?.matchReason}>
+                              <ShieldAlert className="w-3 h-3 text-purple-500 shrink-0" />
+                              <span>
+                                Mirip: <b>{item.matchedLead?.brandName}</b> ({item.matchedLead?.picName || 'No PIC'})
+                              </span>
+                            </div>
+                          )}
+                        </div>
+                      </td>
+                      <td className="py-3 px-4 text-center">
+                        {item.status === 'pending' && (
+                          <div className="flex items-center justify-center gap-1.5">
+                            {isMatched ? (
+                              <button
+                                onClick={() => {
+                                  setSelectedLeadForMerge(item);
+                                  setIsMergeModalOpen(true);
+                                }}
+                                className="px-2.5 py-1 bg-purple-600 hover:bg-purple-700 text-white rounded-lg text-xs font-semibold flex items-center gap-1 shadow-sm transition-all"
+                                title="Gabungkan nomor kontak ini ke lead yang sudah ada"
+                              >
+                                <GitMerge className="w-3 h-3" />
+                                <span>Gabung Kontak</span>
+                              </button>
+                            ) : (
+                              <button
+                                onClick={() => {
+                                  setSelectedIds(new Set([item.id]));
+                                  setIsPromoteModalOpen(true);
+                                }}
+                                className="px-2.5 py-1 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-semibold flex items-center gap-1 shadow-sm transition-all"
+                              >
+                                <UserPlus className="w-3 h-3" />
+                                <span>Tarik Baru</span>
+                              </button>
+                            )}
+                          </div>
+                        )}
+                      </td>
+                    </tr>
+                  );
+                })
+              )}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      {/* Modal Tarik Sebagai Lead Baru */}
+      {isPromoteModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/50 backdrop-blur-sm p-4">
+          <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full p-6 space-y-5 animate-in zoom-in-95">
+            <div>
+              <h3 className="text-lg font-bold text-slate-900">
+                Tarik ke Leads Utama ({selectedIds.size} Brand)
+              </h3>
+              <p className="text-xs text-slate-500 mt-1">
+                Data akan resmi dibuat sebagai data baru di tabel database Leads utama dan pipeline sales.
+              </p>
+            </div>
+
+            <div className="space-y-4">
+              <div>
+                <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1.5">
+                  Tugaskan ke PIC Sales
+                </label>
+                <select
+                  value={selectedPic}
+                  onChange={(e) => setSelectedPic(e.target.value)}
+                  className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-lg text-sm text-slate-800 font-medium focus:ring-2 focus:ring-indigo-500 focus:outline-none"
+                >
+                  {users.map((u) => (
+                    <option key={u.id} value={u.name}>
+                      {u.name} ({u.role})
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1.5">
+                  Kategori Industri
+                </label>
+                <select
+                  value={selectedCategory}
+                  onChange={(e) => setSelectedCategory(e.target.value)}
+                  className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-lg text-sm text-slate-800 font-medium focus:ring-2 focus:ring-indigo-500 focus:outline-none"
+                >
+                  {categories.map((c) => (
+                    <option key={c} value={c}>
+                      {c}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1.5">
+                  Produk yang Ditawarkan
+                </label>
+                <div className="grid grid-cols-3 gap-2">
+                  {['TNT', 'MCN', 'HYPE'].map((prod) => (
+                    <button
+                      key={prod}
+                      type="button"
+                      onClick={() => setSelectedProduct(prod)}
+                      className={`py-2 px-3 text-xs font-bold rounded-lg border text-center transition-all ${
+                        selectedProduct === prod
+                          ? 'bg-indigo-600 text-white border-indigo-600'
+                          : 'bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100'
+                      }`}
+                    >
+                      {prod}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </div>
+
+            <div className="flex items-center justify-end gap-3 pt-3 border-t border-slate-100">
+              <button
+                type="button"
+                onClick={() => setIsPromoteModalOpen(false)}
+                disabled={isSubmitting}
+                className="px-4 py-2 text-sm font-semibold text-slate-600 hover:text-slate-800"
+              >
+                Batal
+              </button>
+              <button
+                type="button"
+                onClick={handlePromoteConfirm}
+                disabled={isSubmitting}
+                className="px-5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-sm font-bold shadow-md shadow-emerald-600/20 disabled:opacity-50"
+              >
+                {isSubmitting ? 'Memproses...' : 'Konfirmasi & Tarik Baru'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal Gabungkan Kontak (Merge) */}
+      {isMergeModalOpen && selectedLeadForMerge && selectedLeadForMerge.matchedLead && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/50 backdrop-blur-sm p-4">
+          <div className="bg-white rounded-2xl shadow-2xl max-w-lg w-full p-6 space-y-5 animate-in zoom-in-95">
+            <div>
+              <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-purple-50 text-purple-700 text-xs font-bold border border-purple-200 mb-2">
+                <GitMerge className="w-3.5 h-3.5" />
+                Gabungkan Kontak Tambahan
+              </div>
+              <h3 className="text-lg font-bold text-slate-900">
+                Perbarui Kontak Lead yang Sudah Ada
+              </h3>
+              <p className="text-xs text-slate-500 mt-1">
+                Data nomor kontak dan email baru ini akan ditambahkan ke lead yang sudah ada tanpa menghapus data kontak yang lama.
+              </p>
+            </div>
+
+            <div className="bg-slate-50 border border-slate-200 p-4 rounded-xl space-y-3 text-xs">
+              <div className="flex justify-between items-center pb-2 border-b border-slate-200">
+                <span className="font-semibold text-slate-500">Lead Target di Sistem:</span>
+                <span className="font-bold text-slate-900">{selectedLeadForMerge.matchedLead.brandName}</span>
+              </div>
+              <div className="flex justify-between items-center pb-2 border-b border-slate-200">
+                <span className="font-semibold text-slate-500">PIC yang Memegang:</span>
+                <span className="font-bold text-slate-900">{selectedLeadForMerge.matchedLead.picName || 'Belum ada PIC'}</span>
+              </div>
+              <div className="flex justify-between items-center pb-2 border-b border-slate-200">
+                <span className="font-semibold text-slate-500">Kontak Lama di CRM:</span>
+                <span className="font-medium text-slate-700">{selectedLeadForMerge.matchedLead.contact}</span>
+              </div>
+              <div className="flex justify-between items-center text-purple-700 font-bold bg-purple-50 p-2 rounded-lg">
+                <span>Kontak Tambahan (TikTok):</span>
+                <span>+{selectedLeadForMerge.contact} {selectedLeadForMerge.email ? `(${selectedLeadForMerge.email})` : ''}</span>
+              </div>
+            </div>
+
+            <p className="text-xs text-slate-500 italic">
+              *Catatan riwayat kontak TikTok Shop ini juga akan otomatis dicatat di riwayat catatan (Notes) lead terkait.
+            </p>
+
+            <div className="flex items-center justify-between gap-3 pt-3 border-t border-slate-100">
+              <button
+                type="button"
+                onClick={() => {
+                  // Jika user batal merge tapi tetap mau buat baru
+                  setIsMergeModalOpen(false);
+                  setSelectedIds(new Set([selectedLeadForMerge.id]));
+                  setIsPromoteModalOpen(true);
+                }}
+                className="text-xs text-indigo-600 hover:text-indigo-800 font-semibold underline"
+              >
+                Tetap Buat Sebagai Lead Terpisah
+              </button>
+
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setIsMergeModalOpen(false)}
+                  disabled={isSubmitting}
+                  className="px-4 py-2 text-sm font-semibold text-slate-600 hover:text-slate-800"
+                >
+                  Batal
+                </button>
+                <button
+                  type="button"
+                  onClick={handleMergeConfirm}
+                  disabled={isSubmitting}
+                  className="px-5 py-2 bg-purple-600 hover:bg-purple-700 text-white rounded-xl text-sm font-bold shadow-md shadow-purple-600/20 disabled:opacity-50"
+                >
+                  {isSubmitting ? 'Menggabungkan...' : 'Konfirmasi Gabung'}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}

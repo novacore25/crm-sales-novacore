@@ -1,7 +1,7 @@
 'use client'
 
 import React, { useState } from 'react';
-import { LayoutDashboard, Users, ClipboardCheck, UserCog, LogOut, ShieldCheck, Target, TrendingUp, Menu, Search, FileText } from 'lucide-react';
+import { LayoutDashboard, Users, ClipboardCheck, UserCog, LogOut, ShieldCheck, Target, TrendingUp, Menu, Search, FileText, Inbox } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { usePathname, useRouter } from 'next/navigation';
 import Link from 'next/link';
@@ -138,6 +138,16 @@ export default function Sidebar({
             onClick={() => handleNavClick('/leads')} 
             icon={<Users className="w-5 h-5" />} 
             label="Leads Database" 
+            sidebarOpen={sidebarOpen}
+            onMouseEnter={handleMouseEnter}
+            onMouseLeave={handleMouseLeave}
+          />
+
+          <NavItem 
+            active={isActive('/scraped-leads')} 
+            onClick={() => handleNavClick('/scraped-leads')} 
+            icon={<Inbox className="w-5 h-5" />} 
+            label="Penampungan Leads" 
             sidebarOpen={sidebarOpen}
             onMouseEnter={handleMouseEnter}
             onMouseLeave={handleMouseLeave}

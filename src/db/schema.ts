@@ -22,6 +22,7 @@ import {
   interestLevelEnum,
   leadStatusEnum,
   productEnum,
+  scrapedLeadStatusEnum,
   taskPriorityEnum,
   taskStatusEnum,
   userRoleEnum,
@@ -792,3 +793,38 @@ export type DocumentRow = typeof documents.$inferSelect;
 export type NewDocumentRow = typeof documents.$inferInsert;
 export type DocumentItem = typeof documentItems.$inferSelect;
 export type NewDocumentItem = typeof documentItems.$inferInsert;
+
+export const scrapedLeads = pgTable(
+  'scraped_leads',
+  {
+    id: text('id').primaryKey(),
+    brandName: text('brand_name').notNull(),
+    contact: text('contact').notNull(),
+    email: text('email'),
+    productName: text('product_name'),
+    category: text('category'),
+    leadSource: text('lead_source').default('TikTok Shop').notNull(),
+    status: scrapedLeadStatusEnum('status').default('pending').notNull(),
+    scrapedAt: timestamp('scraped_at', { withTimezone: true }).defaultNow().notNull(),
+    scrapedBy: text('scraped_by'),
+    promotedToLeadId: text('promoted_to_lead_id').references(() => leads.id, { onDelete: 'set null' }),
+    promotedAt: timestamp('promoted_at', { withTimezone: true }),
+    promotedBy: text('promoted_by'),
+    notes: text('notes'),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow(),
+  },
+  (t) => [
+    index('scraped_leads_status_idx').on(t.status),
+    index('scraped_leads_brand_name_idx').on(t.brandName),
+    index('scraped_leads_contact_idx').on(t.contact),
+    index('scraped_leads_scraped_at_idx').on(t.scrapedAt),
+  ],
+);
+
+export const scrapedLeadsRelations = relations(scrapedLeads, ({ one }) => ({
+  promotedToLead: one(leads, { fields: [scrapedLeads.promotedToLeadId], references: [leads.id] }),
+}));
+
+export type ScrapedLead = typeof scrapedLeads.$inferSelect;
+export type NewScrapedLead = typeof scrapedLeads.$inferInsert;
