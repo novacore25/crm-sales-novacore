@@ -207,7 +207,34 @@ export default function ScrapedLeadsClient({
             if (!chatBtn) continue;
 
             const brandEl = card.querySelector('.bg-neutral-bg3 .arco-typography') || card.querySelector('.bg-neutral-bg3');
-            let brand = brandEl ? (brandEl.getAttribute('title') || brandEl.innerText.split('(')[0]).trim() : '-';
+            let brand = '-';
+            if (brandEl) {
+              const titleNode = brandEl.getAttribute('title') ? brandEl : brandEl.querySelector('[title]');
+              if (titleNode && titleNode.getAttribute('title')) {
+                brand = titleNode.getAttribute('title').split('(')[0].trim();
+              } else {
+                brand = (brandEl.innerText || '').split('(')[0].trim();
+              }
+
+              // Jika nama brand masih terpotong elipsis (... atau …), hover untuk membaca tooltip Arco
+              if (brand.includes('...') || brand.includes('…')) {
+                const hoverEl = brandEl.querySelector('.arco-typography') || brandEl;
+                hoverEl.dispatchEvent(new MouseEvent('mouseenter', { bubbles: true }));
+                hoverEl.dispatchEvent(new MouseEvent('mouseover', { bubbles: true }));
+                await wait(220);
+
+                const tooltips = Array.from(document.querySelectorAll('.arco-tooltip-content, .arco-tooltip, [role="tooltip"]'));
+                for (const tip of tooltips) {
+                  const tipTxt = (tip.innerText || '').split('(')[0].trim();
+                  if (tipTxt && !tipTxt.includes('...') && !tipTxt.includes('…') && tipTxt.length > 2) {
+                    brand = tipTxt;
+                    break;
+                  }
+                }
+                hoverEl.dispatchEvent(new MouseEvent('mouseleave', { bubbles: true }));
+                document.querySelectorAll('.arco-tooltip').forEach((el) => el.style.setProperty('display', 'none', 'important'));
+              }
+            }
 
             // Lewati langsung jika brand ini sudah didapatkan kontaknya di sesi ini (anti dobel brand)
             if (brand && brand !== '-' && items.some((it) => it.brand.toLowerCase() === brand.toLowerCase())) {

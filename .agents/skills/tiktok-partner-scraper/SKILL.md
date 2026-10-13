@@ -77,10 +77,17 @@ description: Scrapes brand names, product titles, unmasked WhatsApp numbers, and
   // Ambil hanya kategori Level 1 sebelum tanda '/' atau '>'
   ```
 
-### B. Kartu Produk & Tombol Chat
+### B. Kartu Produk, Tombol Chat, & Unmasking Nama Brand
 - **Kartu Produk:** `.rounded-4`
 - **Stempel Pemrosesan:** Atribut `data-tnt-scraped="true"` (hanya dipasang jika kontak berhasil diambil atau toko dipastikan tidak punya kontak).
 - **Nama Brand:** `.bg-neutral-bg3 .arco-typography` atau `.bg-neutral-bg3`
+- **Aturan Unmasking Nama Brand (Anti Titik-Titik '...'):**
+  - Cek terlebih dahulu atribut `title` di elemen `brandEl` atau `brandEl.querySelector('[title]')`.
+  - Jika nama brand masih terpotong elipsis (`...` atau `…`, contoh `Beningsindonesiaoffi...`):
+    - Lakukan event hover `mouseenter` dan `mouseover` ke elemen brand.
+    - Tunggu 220ms hingga tooltip Arco muncul di DOM (`.arco-tooltip-content`).
+    - Ekstrak teks utuh dari tooltip (buang rating seperti `(★4.9)`).
+    - Dispatch `mouseleave` dan sembunyikan tooltip kembali.
 - **Judul Produk:** `.text-body-m-regular`
 - **Tombol Chat:** Gambar SVG chat `img[src*="data:image/svg+xml"]` di dalam tombol kartu.
 
