@@ -438,7 +438,7 @@ export async function promoteScrapedLeadsToMain(
       await tx.insert(leads).values({
         id: newLeadId,
         dateInput: dateInputStr,
-        category: record.category || category || 'Beauty & Personal Care',
+        category: category || record.category || 'Beauty & Personal Care',
         brandName: record.brandName,
         contact: record.contact,
         leadSource: record.leadSource || 'TikTok Shop',

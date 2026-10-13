@@ -688,13 +688,29 @@ export default function ScrapedLeadsClient({
     });
   }, [leadsList, filterView, search]);
 
+  const detectedScrapedCategory = useMemo(() => {
+    if (selectedIds.size === 0) return null;
+    const selectedLeads = leadsList.filter((l) => selectedIds.has(l.id));
+    const cat = selectedLeads.find((l) => l.category)?.category;
+    return cat || null;
+  }, [selectedIds, leadsList]);
+
+  // Otomatis sinkronkan selectedCategory setiap kali modal tarik lead dibuka
+  useEffect(() => {
+    if (isPromoteModalOpen && detectedScrapedCategory) {
+      setSelectedCategory(detectedScrapedCategory);
+    }
+  }, [isPromoteModalOpen, detectedScrapedCategory]);
+
   const availableCategories = useMemo(() => {
     const set = new Set(categories);
     leadsList.forEach((l) => {
       if (l.category) set.add(l.category);
     });
-    return Array.from(set);
-  }, [categories, leadsList]);
+    if (selectedCategory) set.add(selectedCategory);
+    if (detectedScrapedCategory) set.add(detectedScrapedCategory);
+    return Array.from(set).filter(Boolean);
+  }, [categories, leadsList, selectedCategory, detectedScrapedCategory]);
 
   const toggleSelectAll = () => {
     if (selectedIds.size === filteredLeads.length) {
@@ -1136,7 +1152,12 @@ export default function ScrapedLeadsClient({
 
           <div className="flex items-center gap-2">
             <button
-              onClick={() => setIsPromoteModalOpen(true)}
+              onClick={() => {
+                if (detectedScrapedCategory) {
+                  setSelectedCategory(detectedScrapedCategory);
+                }
+                setIsPromoteModalOpen(true);
+              }}
               className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-sm font-bold flex items-center gap-2 shadow-sm transition-all"
             >
               <UserPlus className="w-4 h-4" />
@@ -1451,9 +1472,17 @@ export default function ScrapedLeadsClient({
               </div>
 
               <div>
-                <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1.5">
-                  Kategori Industri
-                </label>
+                <div className="flex items-center justify-between mb-1.5">
+                  <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider">
+                    Kategori Industri
+                  </label>
+                  {detectedScrapedCategory && (
+                    <span className="text-[11px] text-indigo-700 bg-indigo-50 border border-indigo-200 px-2 py-0.5 rounded-full font-medium flex items-center gap-1">
+                      <span>📁 Scraping:</span>
+                      <b>{detectedScrapedCategory}</b>
+                    </span>
+                  )}
+                </div>
                 <select
                   value={selectedCategory}
                   onChange={(e) => setSelectedCategory(e.target.value)}
@@ -1465,6 +1494,9 @@ export default function ScrapedLeadsClient({
                     </option>
                   ))}
                 </select>
+                <p className="text-[11px] text-slate-400 mt-1">
+                  Default otomatis terisi sesuai kategori hasil scraping. Anda bisa memilih kategori lain jika ingin disesuaikan.
+                </p>
               </div>
 
               <div>
@@ -1666,6 +1698,9 @@ export default function ScrapedLeadsClient({
                 onClick={() => {
                   setIsMergeModalOpen(false);
                   setSelectedIds(new Set([selectedLeadForMerge.id]));
+                  if (selectedLeadForMerge.category) {
+                    setSelectedCategory(selectedLeadForMerge.category);
+                  }
                   setIsPromoteModalOpen(true);
                 }}
                 className="text-xs text-indigo-600 hover:text-indigo-800 font-semibold underline"
