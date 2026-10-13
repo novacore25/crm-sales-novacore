@@ -13,7 +13,8 @@ export interface MatchedLeadInfo {
   brandName: string;
   contact: string;
   picName: string | null;
-  matchReason: 'Nomor WA sama' | 'Nama Brand sama/mirip';
+  matchReason: string;
+  matchType?: 'phone' | 'brand' | 'both';
 }
 
 export interface ScrapedLeadRow {
@@ -121,26 +122,41 @@ export async function getScrapedLeads(options?: {
       const mlPhone = (ml.contact || '').replace(/[^\d]/g, '');
       const mlBrand = (ml.brandName || '').trim().toLowerCase();
 
-      // Cocok kontak (jika ada nomor kontak)
-      if (cleanPhone && cleanPhone.length >= 8 && (mlPhone.includes(cleanPhone) || cleanPhone.includes(mlPhone))) {
+      const phoneMatches = Boolean(
+        cleanPhone && cleanPhone.length >= 8 && (mlPhone.includes(cleanPhone) || cleanPhone.includes(mlPhone)),
+      );
+      const brandMatches = Boolean(
+        cleanBrand.length >= 3 && (mlBrand === cleanBrand || mlBrand.includes(cleanBrand) || cleanBrand.includes(mlBrand)),
+      );
+
+      if (phoneMatches && brandMatches) {
         matched = {
           id: ml.id,
           brandName: ml.brandName,
           contact: ml.contact,
           picName: ml.picName,
-          matchReason: 'Nomor WA sama',
+          matchReason: `Nama leads & No WA sama dengan brand "${ml.brandName}" (WA: +${ml.contact})`,
+          matchType: 'both',
         };
         break;
-      }
-
-      // Cocok nama brand sama atau mirip
-      if (cleanBrand.length >= 3 && (mlBrand === cleanBrand || mlBrand.includes(cleanBrand) || cleanBrand.includes(mlBrand))) {
+      } else if (phoneMatches) {
         matched = {
           id: ml.id,
           brandName: ml.brandName,
           contact: ml.contact,
           picName: ml.picName,
-          matchReason: 'Nama Brand sama/mirip',
+          matchReason: `No WA sama dengan brand "${ml.brandName}" (WA: +${ml.contact})`,
+          matchType: 'phone',
+        };
+        break;
+      } else if (brandMatches) {
+        matched = {
+          id: ml.id,
+          brandName: ml.brandName,
+          contact: ml.contact,
+          picName: ml.picName,
+          matchReason: `Nama leads mirip dengan brand "${ml.brandName}"`,
+          matchType: 'brand',
         };
         break;
       }

@@ -150,10 +150,17 @@ export default function ScrapedLeadsClient({
         box.appendChild(stopBtn);
 
         while (items.length < targetCount && idleScrolls < 14 && !isStopped) {
-          const allCards = Array.from(document.querySelectorAll('.rounded-4'));
-          const freshCards = allCards.filter((c) => !c.hasAttribute('data-tnt-scraped') && c.querySelector('img[src*="data:image/svg+xml"]'));
+          const isSpinning = Boolean(document.querySelector('.arco-spin-loading, [class*="spin-loading"]'));
+          if (isSpinning) {
+            update('⏳ Menunggu TikTok selesai memuat baris produk...');
+            await wait(700);
+            continue;
+          }
 
-          if (!freshCards.length) {
+          const allCards = Array.from(document.querySelectorAll('.rounded-4'));
+          const pendingCards = allCards.filter((c) => !c.hasAttribute('data-tnt-scraped'));
+
+          if (!pendingCards.length) {
             idleScrolls++;
             update('📜 Mencari produk baru (' + items.length + '/' + targetCount + ' leads, scroll ke-' + idleScrolls + ')...');
             window.scrollBy({ top: 1600, behavior: 'smooth' });
@@ -177,10 +184,36 @@ export default function ScrapedLeadsClient({
             continue;
           }
 
+          // Urutkan kartu secara presisi: Baris atas duluan (top), lalu kiri ke kanan (left)
+          pendingCards.sort((a, b) => {
+            const ra = a.getBoundingClientRect();
+            const rb = b.getBoundingClientRect();
+            const topDiff = (window.scrollY + ra.top) - (window.scrollY + rb.top);
+            if (Math.abs(topDiff) > 60) return topDiff;
+            return (window.scrollX + ra.left) - (window.scrollX + rb.left);
+          });
+
           idleScrolls = 0;
 
-          for (let i = 0; i < freshCards.length && items.length < targetCount && !isStopped; i++) {
-            const card = freshCards[i];
+          for (let i = 0; i < pendingCards.length && items.length < targetCount && !isStopped; i++) {
+            const card = pendingCards[i];
+
+            // Jika kartu di baris ini masih loading / skeleton, tunggu sampai tombol chat muncul
+            let chatImg = card.querySelector('img[src*="data:image/svg+xml"]');
+            if (!chatImg) {
+              update('⏳ Menunggu baris produk selesai memuat...');
+              for (let waitLoad = 0; waitLoad < 8; waitLoad++) {
+                await wait(300);
+                chatImg = card.querySelector('img[src*="data:image/svg+xml"]');
+                if (chatImg) break;
+              }
+            }
+
+            const chatBtn = chatImg ? chatImg.closest('div') : null;
+            if (!chatBtn) {
+              card.setAttribute('data-tnt-scraped', 'true');
+              continue;
+            }
 
             const brandEl = card.querySelector('.bg-neutral-bg3 .arco-typography') || card.querySelector('.bg-neutral-bg3');
             let brand = brandEl ? (brandEl.getAttribute('title') || brandEl.innerText.split('(')[0]).trim() : '-';
@@ -190,9 +223,6 @@ export default function ScrapedLeadsClient({
               card.setAttribute('data-tnt-scraped', 'true');
               continue;
             }
-
-            const chatImg = card.querySelector('img[src*="data:image/svg+xml"]');
-            const chatBtn = chatImg ? chatImg.closest('div') : null;
             if (!chatBtn) continue;
 
             const titleEl = card.querySelector('.text-body-m-regular');
@@ -849,11 +879,18 @@ export default function ScrapedLeadsClient({
 
                           {/* Deteksi Kemiripan dengan Leads Utama */}
                           {isMatched && (
-                            <div className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md bg-purple-50 text-purple-700 border border-purple-200 text-[11px] font-medium" title={item.matchedLead?.matchReason}>
-                              <ShieldAlert className="w-3 h-3 text-purple-500 shrink-0" />
-                              <span>
-                                Mirip: <b>{item.matchedLead?.brandName}</b> ({item.matchedLead?.picName || 'No PIC'})
-                              </span>
+                            <div className="flex flex-col gap-0.5 mt-1 max-w-xs text-left">
+                              <div className="inline-flex items-start gap-1.5 px-2 py-1 rounded-md bg-purple-50 text-purple-800 border border-purple-200 text-[11px]">
+                                <ShieldAlert className="w-3.5 h-3.5 text-purple-600 shrink-0 mt-0.5" />
+                                <div className="flex flex-col text-left">
+                                  <span className="font-semibold text-purple-900 leading-tight">
+                                    {item.matchedLead?.matchReason}
+                                  </span>
+                                  <span className="text-[10px] text-purple-600 mt-0.5">
+                                    Lead Utama: <b>{item.matchedLead?.brandName}</b> • PIC: <b>{item.matchedLead?.picName || 'Belum ada'}</b>
+                                  </span>
+                                </div>
+                              </div>
                             </div>
                           )}
                         </div>
@@ -1020,6 +1057,10 @@ export default function ScrapedLeadsClient({
             </div>
 
             <div className="bg-slate-50 border border-slate-200 p-4 rounded-xl space-y-3 text-xs">
+              <div className="flex justify-between items-center pb-2 border-b border-slate-200">
+                <span className="font-semibold text-slate-500">Alasan Kemiripan:</span>
+                <span className="font-bold text-purple-700">{selectedLeadForMerge.matchedLead.matchReason}</span>
+              </div>
               <div className="flex justify-between items-center pb-2 border-b border-slate-200">
                 <span className="font-semibold text-slate-500">Lead Target di Sistem:</span>
                 <span className="font-bold text-slate-900">{selectedLeadForMerge.matchedLead.brandName}</span>
