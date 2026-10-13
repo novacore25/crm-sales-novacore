@@ -29,7 +29,8 @@ import {
   promoteScrapedLeadsToMain, 
   ignoreScrapedLeads, 
   deleteScrapedLeads,
-  mergeScrapedLeadIntoExisting
+  mergeScrapedLeadIntoExisting,
+  saveScrapedBatch
 } from '@/app/actions/scraped-lead-actions';
 import type { UserProfile } from '@/lib/auth-users';
 
@@ -59,10 +60,9 @@ export default function ScrapedLeadsClient({
   const [selectedCategory, setSelectedCategory] = useState<string>(categories[0] || 'Beauty & Personal Care');
   const [selectedProduct, setSelectedProduct] = useState<string>('TNT');
 
-  // Bookmarklet Super Cerdas: Auto-Scroll, Cap Stempel, Input Target Jumlah, Deteksi Kategori via Hover Tooltip, dan Pembersihan Popover 100%
+  // Bookmarklet Super Cerdas: Auto-Scroll, Cap Stempel, Input Target Jumlah, Deteksi Kategori, Polling Cepat, dan CSP Bypass via postMessage & Clipboard
   const bookmarkletCode = useMemo(() => {
     const origin = typeof window !== 'undefined' ? window.location.origin : 'https://crm-sales.banzilla.my.id';
-    const apiUrl = `${origin}/api/scraped-leads`;
 
     const code = `(async function(){
       const wait = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -173,7 +173,7 @@ export default function ScrapedLeadsClient({
             chatBtn.dispatchEvent(new MouseEvent('mouseenter', { bubbles: true }));
             chatBtn.dispatchEvent(new MouseEvent('mouseover', { bubbles: true }));
             chatBtn.click();
-            await wait(550);
+            await wait(350);
 
             const allPopovers = document.querySelectorAll('.arco-popover-inner-content');
             const popover = allPopovers[allPopovers.length - 1];
@@ -184,10 +184,12 @@ export default function ScrapedLeadsClient({
               const eye = popover.querySelector('.arco-icon-eye_invisible, svg[class*="eye"]');
               if (eye) {
                 eye.dispatchEvent(new MouseEvent('click', { bubbles: true }));
-                await wait(700);
-                if (popover.innerText.includes('*')) {
-                  eye.dispatchEvent(new MouseEvent('click', { bubbles: true }));
-                  await wait(700);
+                for (let poll = 0; poll < 16; poll++) {
+                  await wait(45);
+                  const pTxt = popover.innerText;
+                  if ((pTxt.includes('+62') || pTxt.includes('ID 08') || pTxt.includes('@')) && !pTxt.includes('*')) {
+                    break;
+                  }
                 }
               }
 
@@ -218,32 +220,57 @@ export default function ScrapedLeadsClient({
             }
 
             update('[' + items.length + '/' + targetCount + '] ' + brand + ' (' + (phone || email) + ')');
-            await wait(250);
+            await wait(120);
           }
         }
 
         document.querySelectorAll('.arco-trigger.arco-popover').forEach((el) => el.style.setProperty('display', 'none', 'important'));
 
-        update('📡 Mengirim ' + items.length + ' leads ke server CRM...');
-        const res = await fetch('${apiUrl}', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ items, scrapedBy: 'Bookmarklet' })
-        });
-        const resData = await res.json();
+        // Salin ke clipboard komputer otomatis (backup 100% aman)
+        try {
+          await navigator.clipboard.writeText(JSON.stringify(items));
+        } catch(e){}
 
-        if (resData.success) {
-          box.style.background = '#065f46';
-          box.innerHTML = '<b>✅ Sukses Mengambil ' + items.length + ' Leads!</b><div style="margin-top:4px;">' + resData.message + '</div>';
-        } else {
-          box.style.background = '#991b1b';
-          box.innerHTML = '<b>❌ Gagal Kirim</b><div style="margin-top:4px;">' + (resData.error || 'Terjadi kendala') + '</div>';
-        }
+        box.style.background = '#1e1b4b';
+        box.innerHTML = '<b>🎉 Sukses Ambil ' + items.length + ' Leads!</b><div style="font-size:12px;color:#c7d2fe;margin-top:4px;">Data tersalin di clipboard. Klik tombol di bawah untuk membuka & menyimpan ke CRM:</div><button id="tnt-crm-btn" style="margin-top:10px;width:100%;padding:10px 14px;background:#4f46e5;color:#fff;border:none;border-radius:10px;font-weight:bold;cursor:pointer;font-size:13px;">🚀 Buka & Simpan ke CRM</button>';
+
+        const sendToCRM = () => {
+          const btn = document.getElementById('tnt-crm-btn');
+          if (btn) btn.innerText = '📡 Membuka CRM...';
+          const crmWin = window.open('${origin}/scraped-leads#incoming', '_blank');
+
+          let saved = false;
+          const msgHandler = (ev) => {
+            if (ev.data && ev.data.type === 'CRM_IMPORT_DONE') {
+              saved = true;
+              window.removeEventListener('message', msgHandler);
+              box.style.background = '#065f46';
+              box.innerHTML = '<b>✅ Sukses Tersimpan!</b><div style="margin-top:4px;">' + items.length + ' leads sudah masuk ke database CRM.</div>';
+              setTimeout(() => box.remove(), 4000);
+            }
+          };
+          window.addEventListener('message', msgHandler);
+
+          let tries = 0;
+          const timer = setInterval(() => {
+            tries++;
+            if (saved || tries > 25) {
+              clearInterval(timer);
+              return;
+            }
+            if (crmWin && !crmWin.closed) {
+              crmWin.postMessage({ type: 'TNT_LEADS_DATA', items, scrapedBy: 'Bookmarklet' }, '*');
+            }
+          }, 600);
+        };
+
+        const crmBtn = document.getElementById('tnt-crm-btn');
+        if (crmBtn) crmBtn.onclick = sendToCRM;
       } catch (err) {
         box.style.background = '#991b1b';
         box.innerHTML = '<b>❌ Error</b><div>' + err.message + '</div>';
+        setTimeout(() => box.remove(), 8000);
       }
-      setTimeout(() => box.remove(), 7000);
     })()`;
 
     // Minifikasi total: buang baris baru dan spasi berlebih menjadi 1 baris utuh
@@ -262,6 +289,63 @@ export default function ScrapedLeadsClient({
       bookmarkletAnchorRef.current.setAttribute('href', bookmarkletCode);
     }
   }, [bookmarkletCode]);
+
+  // Listener inter-window: Terima data leads dari bookmarklet TikTok via postMessage (kebal 100% CSP TikTok)
+  useEffect(() => {
+    const handleIncomingMessage = async (event: MessageEvent) => {
+      if (event.data && event.data.type === 'TNT_LEADS_DATA' && Array.isArray(event.data.items)) {
+        const items = event.data.items;
+        toast.info(`Menerima ${items.length} leads dari TikTok Shop, sedang menyimpan ke database...`);
+        try {
+          const res = await saveScrapedBatch(items, event.data.scrapedBy || 'Bookmarklet');
+          if (res.inserted > 0 || res.skipped > 0) {
+            toast.success(`Berhasil menyimpan ${res.inserted} leads baru (${res.skipped} duplikat dilewati).`);
+            if (event.source && 'postMessage' in event.source) {
+              (event.source as Window).postMessage({ type: 'CRM_IMPORT_DONE', total: res.inserted }, '*');
+            }
+            window.location.reload();
+          } else {
+            toast.error(res.error || 'Gagal menyimpan data leads');
+          }
+        } catch {
+          toast.error('Terjadi kesalahan saat menyimpan data leads');
+        }
+      }
+    };
+
+    window.addEventListener('message', handleIncomingMessage);
+
+    // Beri tahu opener jika CRM baru saja terbuka
+    if (window.opener) {
+      try {
+        window.opener.postMessage({ type: 'CRM_READY' }, '*');
+      } catch {}
+    }
+
+    return () => window.removeEventListener('message', handleIncomingMessage);
+  }, []);
+
+  // Fungsi Tempel (Paste) Manual dari Clipboard jika pengguna menyalinnya
+  const handlePasteClipboard = async () => {
+    try {
+      const text = await navigator.clipboard.readText();
+      const parsed = JSON.parse(text);
+      if (Array.isArray(parsed) && parsed.length > 0) {
+        toast.info(`Membaca ${parsed.length} leads dari clipboard, sedang menyimpan...`);
+        const res = await saveScrapedBatch(parsed, 'Clipboard');
+        if (res.inserted > 0 || res.skipped > 0) {
+          toast.success(`Berhasil menyimpan ${res.inserted} leads (${res.skipped} duplikat dilewati).`);
+          window.location.reload();
+        } else {
+          toast.error('Data tidak valid atau sudah ada.');
+        }
+      } else {
+        toast.error('Isi clipboard bukan format leads yang valid.');
+      }
+    } catch {
+      toast.error('Gagal membaca clipboard. Pastikan izin akses clipboard disetujui.');
+    }
+  };
 
   // Filter Data
   const filteredLeads = useMemo(() => {
@@ -509,16 +593,27 @@ export default function ScrapedLeadsClient({
           ))}
         </div>
 
-        {/* Search Input */}
-        <div className="relative w-full md:w-80">
-          <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
-          <input
-            type="text"
-            placeholder="Cari brand, WA, email..."
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            className="w-full pl-9 pr-4 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:bg-white transition-all text-slate-800"
-          />
+        {/* Action & Search */}
+        <div className="flex items-center gap-2.5 w-full md:w-auto">
+          <button
+            onClick={handlePasteClipboard}
+            className="px-3.5 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold rounded-lg text-xs flex items-center gap-1.5 transition-all border border-slate-200 shrink-0"
+            title="Tempel data leads yang tersalin di clipboard komputer"
+          >
+            <span>📥</span>
+            <span>Tempel Leads</span>
+          </button>
+
+          <div className="relative w-full md:w-80">
+            <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+            <input
+              type="text"
+              placeholder="Cari brand, WA, email..."
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              className="w-full pl-9 pr-4 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:bg-white transition-all text-slate-800"
+            />
+          </div>
         </div>
       </div>
 
