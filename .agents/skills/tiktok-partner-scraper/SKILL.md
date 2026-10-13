@@ -12,11 +12,12 @@ This skill provides the domain knowledge, DOM selectors, unmasking techniques, a
 
 1. **Client-Side Bookmarklet Execution:**
    - Runs in the user's active session inside `partner.tiktokshop.com`.
+   - **Category Validation:** Automatically checks filter category (`[data-tid="m4b_cascader"]`). Hovers to unmask tooltip text and extracts Level-1 category (e.g. `Beauty & Personal Care`), stripping subcategories. If no category is selected, halts execution with an alert prompt.
    - Prompts for target number of leads (e.g. 50, 100).
    - Stamps processed cards with `data-tnt-scraped="true"` to prevent reprocessing.
    - Automatically scrolls down (`window.scrollBy`) when cards run out until the target count is satisfied.
    - Hides/cleans up all contact popovers (`display: none !important`) so the screen remains clean without lingering overlays.
-   - Sends batch JSON payload to `https://crm-sales.banzilla.my.id/api/scraped-leads` via CORS.
+   - Sends batch JSON payload to `https://crm-sales.banzilla.my.id/api/scraped-leads` via CORS with extracted category.
 
 2. **Server-Side Staging (`scraped_leads` Table):**
    - Completely isolated from the main `leads` table.

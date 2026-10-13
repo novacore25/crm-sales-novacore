@@ -59,21 +59,78 @@ export default function ScrapedLeadsClient({
   const [selectedCategory, setSelectedCategory] = useState<string>(categories[0] || 'Beauty & Personal Care');
   const [selectedProduct, setSelectedProduct] = useState<string>('TNT');
 
-  // Bookmarklet Super Cerdas: Auto-Scroll, Cap Stempel, Input Target Jumlah, dan Pembersihan Popover 100%
+  // Bookmarklet Super Cerdas: Auto-Scroll, Cap Stempel, Input Target Jumlah, Deteksi Kategori via Hover Tooltip, dan Pembersihan Popover 100%
   const bookmarkletCode = useMemo(() => {
     const origin = typeof window !== 'undefined' ? window.location.origin : 'https://crm-sales.banzilla.my.id';
     const apiUrl = `${origin}/api/scraped-leads`;
 
     return `javascript:(async function(){
-      const targetStr = prompt('Berapa banyak leads yang ingin diambil?', '50');
+      const wait = ms => new Promise(r => setTimeout(r, ms));
+
+      // 1. Deteksi Kategori yang dipilih user di TikTok Shop
+      const getCategory = async () => {
+        const cascader = document.querySelector('[data-tid="m4b_cascader"], .arco-cascader');
+        if (!cascader) return null;
+
+        const valEl = cascader.querySelector('.arco-cascader-view-value');
+        if (!valEl) return null;
+        const rawVal = (valEl.innerText || '').trim();
+        if (!rawVal || rawVal.toLowerCase() === 'category') return null;
+
+        // Hover ke cascader/value untuk memunculkan tooltip berisi teks kategori lengkap
+        let fullText = '';
+        const hoverTarget = cascader.querySelector('.arco-tooltip-open') || valEl || cascader;
+        hoverTarget.dispatchEvent(new MouseEvent('mouseenter', { bubbles: true }));
+        hoverTarget.dispatchEvent(new MouseEvent('mouseover', { bubbles: true }));
+        await wait(350);
+
+        const tooltips = Array.from(document.querySelectorAll('.arco-tooltip-content, .arco-tooltip, [role="tooltip"]'));
+        for (const tip of tooltips) {
+          const t = (tip.innerText || '').trim();
+          if (t && (t.includes('/') || t.length > 3)) {
+            fullText = t;
+            break;
+          }
+        }
+
+        // Sembunyikan / tutup kembali tooltip agar layar bersih
+        hoverTarget.dispatchEvent(new MouseEvent('mouseleave', { bubbles: true }));
+        document.querySelectorAll('.arco-tooltip').forEach(el => el.style.setProperty('display', 'none', 'important'));
+
+        // Fallback jika tooltip tidak tertangkap: cek title attribute atau raw text
+        if (!fullText) {
+          const titleNode = cascader.querySelector('[title]');
+          if (titleNode && titleNode.getAttribute('title')) {
+            fullText = titleNode.getAttribute('title');
+          } else {
+            fullText = rawVal;
+          }
+        }
+
+        if (fullText) {
+          // Ambil nama kategori yang pertama saja (sebelum '/')
+          const first = fullText.split('/')[0].split('>')[0].split('\\n')[0].trim();
+          if (first && first !== '...' && first.toLowerCase() !== 'category') {
+            return first;
+          }
+        }
+        return null;
+      };
+
+      const selectedCategory = await getCategory();
+      if (!selectedCategory) {
+        alert('⚠️ Kategori produk belum dipilih!\\n\\nSilakan pilih filter Kategori terlebih dahulu di TikTok Shop sebelum mengambil leads.');
+        return;
+      }
+
+      const targetStr = prompt('Kategori: [' + selectedCategory + ']\\n\\nBerapa banyak leads yang ingin diambil?', '50');
       if (!targetStr) return;
       const targetCount = parseInt(targetStr, 10);
       if (isNaN(targetCount) || targetCount <= 0) { alert('Jumlah tidak valid'); return; }
 
-      const wait = ms => new Promise(r => setTimeout(r, ms));
       const box = document.createElement('div');
       box.style.cssText = 'position:fixed;bottom:24px;right:24px;z-index:9999999;background:#0f172a;color:#fff;padding:16px 22px;border-radius:14px;box-shadow:0 12px 30px rgba(0,0,0,0.5);font-family:system-ui,-apple-system,sans-serif;font-size:13px;max-width:340px;line-height:1.5;border:1px solid #334155;';
-      box.innerHTML = '<b>🚀 TNT CRM Scraper</b><div id="tnt-status" style="margin-top:6px;color:#94a3b8;">Menyiapkan...</div>';
+      box.innerHTML = '<b>🚀 TNT CRM Scraper</b><div style="font-size:12px;color:#38bdf8;margin-top:2px;font-weight:600;">📁 ' + selectedCategory + '</div><div id="tnt-status" style="margin-top:6px;color:#94a3b8;">Menyiapkan...</div>';
       document.body.appendChild(box);
       const update = msg => { const el = document.getElementById('tnt-status'); if(el) el.innerText = msg; };
 
@@ -157,7 +214,7 @@ export default function ScrapedLeadsClient({
             chatBtn.dispatchEvent(new MouseEvent('mouseleave', { bubbles: true }));
 
             if (brand && (phone || email)) {
-              items.push({ brand, phone, email, product });
+              items.push({ brand, phone, email, product, category: selectedCategory });
             }
 
             update(\`[\${items.length}/\${targetCount}] \${brand} (\${phone || email})\`);
@@ -215,6 +272,14 @@ export default function ScrapedLeadsClient({
       return true;
     });
   }, [leadsList, statusFilter, search]);
+
+  const availableCategories = useMemo(() => {
+    const set = new Set(categories);
+    leadsList.forEach((l) => {
+      if (l.category) set.add(l.category);
+    });
+    return Array.from(set);
+  }, [categories, leadsList]);
 
   const toggleSelectAll = () => {
     if (selectedIds.size === filteredLeads.length) {
@@ -522,8 +587,13 @@ export default function ScrapedLeadsClient({
                           )}
                         </button>
                       </td>
-                      <td className="py-3 px-4 font-bold text-slate-900">
-                        {item.brandName}
+                      <td className="py-3 px-4 text-slate-900">
+                        <div className="font-bold">{item.brandName}</div>
+                        {item.category && (
+                          <span className="inline-block mt-1 px-2 py-0.5 rounded text-[11px] font-semibold bg-indigo-50 text-indigo-700 border border-indigo-200">
+                            📁 {item.category}
+                          </span>
+                        )}
                       </td>
                       <td className="py-3 px-4">
                         {item.contact ? (
@@ -608,6 +678,7 @@ export default function ScrapedLeadsClient({
                               <button
                                 onClick={() => {
                                   setSelectedIds(new Set([item.id]));
+                                  if (item.category) setSelectedCategory(item.category);
                                   setIsPromoteModalOpen(true);
                                 }}
                                 className="px-2.5 py-1 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-semibold flex items-center gap-1 shadow-sm transition-all"
@@ -668,7 +739,7 @@ export default function ScrapedLeadsClient({
                   onChange={(e) => setSelectedCategory(e.target.value)}
                   className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-lg text-sm text-slate-800 font-medium focus:ring-2 focus:ring-indigo-500 focus:outline-none"
                 >
-                  {categories.map((c) => (
+                  {availableCategories.map((c) => (
                     <option key={c} value={c}>
                       {c}
                     </option>
