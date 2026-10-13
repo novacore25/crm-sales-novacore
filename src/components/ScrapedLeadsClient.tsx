@@ -143,7 +143,6 @@ export default function ScrapedLeadsClient({
         let idleScrolls = 0;
         let isStopped = false;
 
-        // Pasang tombol Stop & Simpan Lebih Awal
         const stopBtn = document.createElement('button');
         stopBtn.innerText = '⏹️ Stop & Simpan Sekarang';
         stopBtn.style.cssText = 'margin-top:8px;background:#334155;color:#f1f5f9;border:1px solid #475569;border-radius:6px;padding:4px 10px;font-size:11px;cursor:pointer;width:100%;font-weight:600;';
@@ -192,7 +191,6 @@ export default function ScrapedLeadsClient({
               const eye = popover.querySelector('.arco-icon-eye_invisible, svg[class*="eye"]');
               if (eye) {
                 eye.dispatchEvent(new MouseEvent('click', { bubbles: true }));
-                // Polling adaptif sangat cepat (cek per 35ms)
                 for (let poll = 0; poll < 18; poll++) {
                   await wait(35);
                   const pTxt = popover.innerText;
@@ -227,7 +225,6 @@ export default function ScrapedLeadsClient({
             if (brand && (phone || email)) {
               items.push({ brand, phone, email, product, category: selectedCategory });
 
-              // Auto-save cadangan ke localStorage browser secara real-time
               try {
                 localStorage.setItem('tnt_scraped_backup', JSON.stringify(items));
                 if (items.length % 5 === 0) {
@@ -243,7 +240,6 @@ export default function ScrapedLeadsClient({
 
         document.querySelectorAll('.arco-trigger.arco-popover').forEach((el) => el.style.setProperty('display', 'none', 'important'));
 
-        // Salin ke clipboard komputer otomatis (backup 100% aman)
         try {
           await navigator.clipboard.writeText(JSON.stringify(items));
         } catch(e){}
@@ -297,8 +293,9 @@ export default function ScrapedLeadsClient({
       }
     })()`;
 
-    // Minifikasi total: buang baris baru dan spasi berlebih menjadi 1 baris utuh
+    // Minifikasi aman: buang komentar satu baris penuh saja (agar URL https:// tidak terpotong)
     const minified = code
+      .replace(/^\s*\/\/[^\r\n]*/gm, '')
       .replace(/[\r\n]+/g, ' ')
       .replace(/\s{2,}/g, ' ')
       .trim();
