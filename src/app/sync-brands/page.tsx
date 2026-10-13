@@ -5,16 +5,12 @@ import { eq } from 'drizzle-orm';
 export const dynamic = 'force-dynamic';
 
 export default async function SyncBrandsPage() {
-  const [scrapedRows, mainRows] = await Promise.all([
-    db.select({ brand: scrapedLeads.brandName }).from(scrapedLeads),
-    db.select({ brand: leads.brandName }).from(leads).where(eq(leads.isDeleted, false)),
-  ]);
+  const scrapedRows = await db
+    .select({ brand: scrapedLeads.brandName })
+    .from(scrapedLeads);
 
   const set = new Set<string>();
   for (const r of scrapedRows) {
-    if (r.brand && r.brand.trim()) set.add(r.brand.trim());
-  }
-  for (const r of mainRows) {
     if (r.brand && r.brand.trim()) set.add(r.brand.trim());
   }
   const brands = Array.from(set);
