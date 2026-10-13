@@ -12,9 +12,11 @@ export interface MatchedLeadInfo {
   id: string;
   brandName: string;
   contact: string;
+  email?: string | null;
   picName: string | null;
   matchReason: string;
-  matchType?: 'phone' | 'brand' | 'both';
+  matchType?: 'exact' | 'phone' | 'brand' | 'email' | 'update_needed' | 'both';
+  updateType?: 'exact_duplicate' | 'need_email' | 'need_phone' | 'similar';
 }
 
 export interface ScrapedLeadRow {
@@ -58,11 +60,9 @@ export async function getScrapedLeads(options?: {
   const limit = options?.limit ?? 500;
 
   const conditions = [];
-
   if (statusFilter) {
     conditions.push(eq(scrapedLeads.status, statusFilter));
   }
-
   if (search) {
     conditions.push(
       or(
@@ -101,12 +101,13 @@ export async function getScrapedLeads(options?: {
     .orderBy(desc(scrapedLeads.scrapedAt))
     .limit(limit);
 
-  // 2. Ambil snapshot leads utama untuk mencocokkan kemiripan brand / kontak
+  // 2. Ambil snapshot leads utama untuk mencocokkan kemiripan brand / kontak / email
   const mainLeads = await db
     .select({
       id: leads.id,
       brandName: leads.brandName,
       contact: leads.contact,
+      email: leads.email,
       picName: leads.picName,
     })
     .from(leads)
@@ -115,52 +116,133 @@ export async function getScrapedLeads(options?: {
   return rows.map((r) => {
     // Cari apakah ada kecocokan di leads utama
     let matched: MatchedLeadInfo | null = null;
-    const cleanPhone = r.contact.replace(/[^\d]/g, '');
-    const cleanBrand = r.brandName.trim().toLowerCase();
+    const cleanPhone = r.contact ? r.contact.replace(/[^\d]/g, '') : '';
+    const cleanBrand = (r.brandName || '').trim().toLowerCase();
+    const cleanEmail = (r.email || '').trim().toLowerCase();
 
     for (const ml of mainLeads) {
       const mlPhone = (ml.contact || '').replace(/[^\d]/g, '');
       const mlBrand = (ml.brandName || '').trim().toLowerCase();
+      const mlEmail = (ml.email || '').trim().toLowerCase();
 
-      const phoneMatches = Boolean(
-        cleanPhone.length >= 8 &&
-          mlPhone.length >= 8 &&
-          (mlPhone.includes(cleanPhone) || cleanPhone.includes(mlPhone)),
-      );
-      const brandMatches = Boolean(
+      const isExactBrand = cleanBrand.length >= 2 && cleanBrand === mlBrand;
+      const isSimilarBrand = Boolean(
         cleanBrand.length >= 3 &&
           mlBrand.length >= 3 &&
-          (mlBrand === cleanBrand || mlBrand.includes(cleanBrand) || cleanBrand.includes(mlBrand)),
+          (cleanBrand === mlBrand || mlBrand.includes(cleanBrand) || cleanBrand.includes(mlBrand)),
       );
 
-      if (phoneMatches && brandMatches) {
+      const isPhoneMatch = Boolean(
+        cleanPhone.length >= 8 &&
+          mlPhone.length >= 8 &&
+          (cleanPhone === mlPhone || mlPhone.includes(cleanPhone) || cleanPhone.includes(mlPhone)),
+      );
+
+      const isEmailMatch = Boolean(
+        cleanEmail.length >= 5 &&
+          mlEmail.length >= 5 &&
+          cleanEmail === mlEmail,
+      );
+
+      // KASUS 1: Nama Brand 100% sama DAN Nomor WA 100% sama
+      if (isExactBrand && isPhoneMatch) {
+        if ((!mlEmail || mlEmail === '-') && cleanEmail) {
+          matched = {
+            id: ml.id,
+            brandName: ml.brandName,
+            contact: ml.contact,
+            email: ml.email,
+            picName: ml.picName,
+            matchReason: `Leads sudah ada di database (Nama & Kontak sama) • Perlu Update: Lengkapi Email (${cleanEmail})`,
+            matchType: 'exact',
+            updateType: 'need_email',
+          };
+        } else {
+          matched = {
+            id: ml.id,
+            brandName: ml.brandName,
+            contact: ml.contact,
+            email: ml.email,
+            picName: ml.picName,
+            matchReason: 'Leads sudah ada di database (Nama & Kontak sama)',
+            matchType: 'exact',
+            updateType: 'exact_duplicate',
+          };
+        }
+        break;
+      }
+
+      // KASUS 2: Brand sama (atau mirip), tapi di DB utama baru ada WA dan belum ada email
+      if ((isExactBrand || isSimilarBrand) && (!mlEmail || mlEmail === '-') && cleanEmail) {
         matched = {
           id: ml.id,
           brandName: ml.brandName,
           contact: ml.contact,
+          email: ml.email,
           picName: ml.picName,
-          matchReason: `Nama leads & No WA sama dengan brand "${ml.brandName}" (WA: +${ml.contact})`,
-          matchType: 'both',
+          matchReason: `Brand "${ml.brandName}" sudah ada di database • Perlu Update: Lengkapi Email (${cleanEmail})`,
+          matchType: 'update_needed',
+          updateType: 'need_email',
         };
         break;
-      } else if (phoneMatches) {
+      }
+
+      // KASUS 3: Brand sama (atau mirip), tapi di DB utama baru ada email dan belum ada WA
+      if ((isExactBrand || isSimilarBrand) && (!mlPhone || mlPhone.length < 8) && cleanPhone.length >= 8) {
         matched = {
           id: ml.id,
           brandName: ml.brandName,
           contact: ml.contact,
+          email: ml.email,
+          picName: ml.picName,
+          matchReason: `Brand "${ml.brandName}" sudah ada di database • Perlu Update: Lengkapi No. WA (+${cleanPhone})`,
+          matchType: 'update_needed',
+          updateType: 'need_phone',
+        };
+        break;
+      }
+
+      // KASUS 4: Email 100% sama, tapi di DB utama belum ada no WA
+      if (isEmailMatch && (!mlPhone || mlPhone.length < 8) && cleanPhone.length >= 8) {
+        matched = {
+          id: ml.id,
+          brandName: ml.brandName,
+          contact: ml.contact,
+          email: ml.email,
+          picName: ml.picName,
+          matchReason: `Email sama dengan brand "${ml.brandName}" • Perlu Update: Lengkapi No. WA (+${cleanPhone})`,
+          matchType: 'update_needed',
+          updateType: 'need_phone',
+        };
+        break;
+      }
+
+      // KASUS 5: Nomor WA sama persis, tapi nama brand berbeda
+      if (isPhoneMatch) {
+        matched = {
+          id: ml.id,
+          brandName: ml.brandName,
+          contact: ml.contact,
+          email: ml.email,
           picName: ml.picName,
           matchReason: `No WA sama dengan brand "${ml.brandName}" (WA: +${ml.contact})`,
           matchType: 'phone',
+          updateType: 'similar',
         };
         break;
-      } else if (brandMatches) {
+      }
+
+      // KASUS 6: Nama brand mirip
+      if (isSimilarBrand) {
         matched = {
           id: ml.id,
           brandName: ml.brandName,
           contact: ml.contact,
+          email: ml.email,
           picName: ml.picName,
           matchReason: `Nama leads mirip dengan brand "${ml.brandName}"`,
           matchType: 'brand',
+          updateType: 'similar',
         };
         break;
       }
@@ -479,16 +561,24 @@ export async function mergeScrapedLeadIntoExisting(input: {
   const now = new Date();
 
   await db.transaction(async (tx) => {
-    // 1. Gabungkan nomor kontak jika berbeda
+    // 1. Gabungkan nomor kontak jika berbeda atau lengkapi jika target belum punya
     let updatedContact = t.contact;
-    if (s.contact && !t.contact.includes(s.contact)) {
-      updatedContact = `${t.contact} / ${s.contact}`;
+    if (s.contact) {
+      if (!t.contact || t.contact === '-' || t.contact.trim() === '') {
+        updatedContact = s.contact;
+      } else if (!t.contact.includes(s.contact)) {
+        updatedContact = `${t.contact} / ${s.contact}`;
+      }
     }
 
-    // 2. Isi email jika sebelumnya kosong
+    // 2. Isi email jika sebelumnya kosong atau lengkapi jika target belum punya
     let updatedEmail = t.email;
-    if (!t.email && s.email) {
-      updatedEmail = s.email;
+    if (s.email) {
+      if (!t.email || t.email === '-' || t.email.trim() === '') {
+        updatedEmail = s.email;
+      } else if (!t.email.toLowerCase().includes(s.email.toLowerCase())) {
+        updatedEmail = `${t.email} / ${s.email}`;
+      }
     }
 
     await tx
