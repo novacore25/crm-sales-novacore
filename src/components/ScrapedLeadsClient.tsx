@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { 
   Inbox, 
   Search, 
@@ -191,6 +191,14 @@ export default function ScrapedLeadsClient({
     })();`;
   }, []);
 
+  // Pasang href langsung ke DOM via ref agar tidak diblokir/disanitasi oleh React
+  const bookmarkletAnchorRef = useRef<HTMLAnchorElement>(null);
+  useEffect(() => {
+    if (bookmarkletAnchorRef.current && bookmarkletCode) {
+      bookmarkletAnchorRef.current.setAttribute('href', bookmarkletCode);
+    }
+  }, [bookmarkletCode]);
+
   // Filter Data
   const filteredLeads = useMemo(() => {
     return leadsList.filter((item) => {
@@ -367,7 +375,8 @@ export default function ScrapedLeadsClient({
 
         <div className="flex flex-col sm:flex-row items-center gap-3 w-full md:w-auto shrink-0">
           <a
-            href={bookmarkletCode}
+            ref={bookmarkletAnchorRef}
+            href="#"
             onClick={(e) => {
               e.preventDefault();
               toast.info('Tarik (drag) tombol ini ke baris Bookmark Chrome Anda di bagian atas layar.');
