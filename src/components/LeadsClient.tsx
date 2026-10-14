@@ -910,26 +910,52 @@ export default function LeadsClient({
                           <Database className="w-3 h-3" />{' '}
                           {new Date(lead.dateInput || 0).toLocaleDateString('id-ID')}
                         </span>
-                        <a
-                          href={`https://wa.me/${(lead.contact || '').replace(/^0/, '62')}`}
-                          target="_blank"
-                          rel="noreferrer"
-                          className="text-[11px] text-emerald-600 hover:underline font-bold flex items-center gap-1"
-                        >
-                          <Phone className="w-3 h-3" /> {lead.contact || '-'}
-                        </a>
+                        {/* WhatsApp Contacts (bisa multi-kontak dipisah ' / ') */}
+                        {(lead.contact || '').split('/').map((c) => c.trim()).filter(Boolean).length > 0 ? (
+                          (lead.contact || '').split('/').map((c, idx) => {
+                            const trimmed = c.trim();
+                            const cleanWa = trimmed.replace(/^\+/, '').replace(/^0/, '62').replace(/[^\d]/g, '');
+                            return (
+                              <a
+                                key={idx}
+                                href={`https://wa.me/${cleanWa}`}
+                                target="_blank"
+                                rel="noreferrer"
+                                className="text-[11px] text-emerald-600 hover:underline font-bold flex items-center gap-1"
+                                title={`Buka WhatsApp: ${trimmed}`}
+                              >
+                                <Phone className="w-3 h-3" /> {trimmed}
+                              </a>
+                            );
+                          })
+                        ) : (
+                          <span className="text-[11px] text-slate-400 font-bold flex items-center gap-1">
+                            <Phone className="w-3 h-3" /> -
+                          </span>
+                        )}
                         {lead.leadSource && (
                           <span className="text-[9px] font-black uppercase tracking-wider text-indigo-600 bg-indigo-50 border border-indigo-100 px-1.5 py-0.5 rounded">
                             {lead.leadSource}
                           </span>
                         )}
+                        {/* Email Contacts (bisa multi-email dipisah ' / ') */}
                         {lead.email && (
-                          <a
-                            href={`mailto:${lead.email}`}
-                            className="text-[11px] text-blue-500 hover:underline font-bold flex items-center gap-1"
-                          >
-                            <Mail className="w-3 h-3" /> {lead.email}
-                          </a>
+                          <div className="flex items-center gap-2">
+                            {lead.email.split('/').map((e, idx) => {
+                              const trimmed = e.trim();
+                              if (!trimmed || trimmed === '-') return null;
+                              return (
+                                <a
+                                  key={idx}
+                                  href={`mailto:${trimmed}`}
+                                  className="text-[11px] text-blue-500 hover:underline font-bold flex items-center gap-1"
+                                  title={`Kirim email ke: ${trimmed}`}
+                                >
+                                  <Mail className="w-3 h-3" /> {trimmed}
+                                </a>
+                              );
+                            })}
+                          </div>
                         )}
                       </div>
                       {lead.productOffered && lead.productOffered.length > 0 && (

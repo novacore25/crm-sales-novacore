@@ -1151,15 +1151,29 @@ export default function DashboardClient({
                             <span className="font-bold text-slate-900 text-xs group-hover/brand:text-indigo-600 transition tracking-tight">
                               {lead.brandName}
                             </span>
-                            <a 
-                              href={`https://wa.me/${(lead.contact || '').replace(/^0/, '62').replace(/\D/g, '')}`}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              onClick={(e) => e.stopPropagation()}
-                              className="text-[9px] text-slate-400 font-medium group-hover/brand:text-emerald-500 hover:text-emerald-600 transition flex items-center gap-1 mt-0.5 hover:underline"
-                            >
-                              <Phone className="w-2.5 h-2.5" /> {(lead.contact || '').replace(/^0/, '62')}
-                            </a>
+                            <div className="flex flex-wrap items-center gap-1.5 mt-0.5">
+                              {(lead.contact || '')
+                                .split('/')
+                                .map((c) => c.trim())
+                                .filter(Boolean)
+                                .map((c, idx) => {
+                                  const cleanWa = c.replace(/^\+/, '').replace(/^0/, '62').replace(/[^\d]/g, '');
+                                  return (
+                                    <a
+                                      key={idx}
+                                      href={`https://wa.me/${cleanWa}`}
+                                      target="_blank"
+                                      rel="noopener noreferrer"
+                                      onClick={(e) => e.stopPropagation()}
+                                      className="text-[9px] text-slate-400 font-medium group-hover/brand:text-emerald-500 hover:text-emerald-600 transition flex items-center gap-1 hover:underline"
+                                      title={`Buka WhatsApp: ${c}`}
+                                    >
+                                      <Phone className="w-2.5 h-2.5 text-emerald-600" />
+                                      <span>{c}</span>
+                                    </a>
+                                  );
+                                })}
+                            </div>
                           </button>
                         </td>
                         <td className="px-8 py-4">

@@ -1321,13 +1321,20 @@ export default function ScrapedLeadsClient({
                           {isMatched && (
                             <div className="flex flex-col gap-0.5 mt-1 max-w-xs text-left">
                               <div className={`inline-flex items-start gap-1.5 px-2 py-1 rounded-md border text-[11px] ${
-                                item.matchedLead?.updateType === 'need_email' || item.matchedLead?.updateType === 'need_phone'
+                                item.matchedLead?.updateType === 'both_update'
+                                  ? 'bg-indigo-50 text-indigo-900 border-indigo-200'
+                                  : item.matchedLead?.updateType === 'need_email' || item.matchedLead?.updateType === 'need_phone'
                                   ? 'bg-blue-50 text-blue-900 border-blue-200'
                                   : item.matchedLead?.updateType === 'exact_duplicate'
                                   ? 'bg-amber-50 text-amber-900 border-amber-200'
                                   : 'bg-purple-50 text-purple-900 border-purple-200'
                               }`}>
-                                {item.matchedLead?.updateType === 'need_email' ? (
+                                {item.matchedLead?.updateType === 'both_update' ? (
+                                  <div className="flex items-center gap-0.5 text-indigo-600 shrink-0 mt-0.5">
+                                    <Phone className="w-3 h-3" />
+                                    <Mail className="w-3 h-3" />
+                                  </div>
+                                ) : item.matchedLead?.updateType === 'need_email' ? (
                                   <Mail className="w-3.5 h-3.5 text-blue-600 shrink-0 mt-0.5" />
                                 ) : item.matchedLead?.updateType === 'need_phone' ? (
                                   <Phone className="w-3.5 h-3.5 text-blue-600 shrink-0 mt-0.5" />
@@ -1355,7 +1362,20 @@ export default function ScrapedLeadsClient({
                             <>
                               {isMatched ? (
                                 <>
-                                  {item.matchedLead?.updateType === 'need_email' ? (
+                                  {item.matchedLead?.updateType === 'both_update' ? (
+                                    <button
+                                      onClick={() => {
+                                        setSelectedLeadForMerge(item);
+                                        setIsMergeModalOpen(true);
+                                      }}
+                                      className="px-2.5 py-1 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-xs font-semibold flex items-center gap-1 shadow-sm transition-all"
+                                      title="Lengkapi nomor WA dan email lead utama dengan data baru dari TikTok"
+                                    >
+                                      <Phone className="w-3 h-3" />
+                                      <Mail className="w-3 h-3" />
+                                      <span>Update WA & Email</span>
+                                    </button>
+                                  ) : item.matchedLead?.updateType === 'need_email' ? (
                                     <button
                                       onClick={() => {
                                         setSelectedLeadForMerge(item);
@@ -1550,13 +1570,21 @@ export default function ScrapedLeadsClient({
           <div className="bg-white rounded-2xl shadow-2xl max-w-2xl w-full p-6 space-y-5 animate-in zoom-in-95">
             <div>
               <div className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-bold border mb-2 ${
-                selectedLeadForMerge.matchedLead.updateType === 'need_email' || selectedLeadForMerge.matchedLead.updateType === 'need_phone'
+                selectedLeadForMerge.matchedLead.updateType === 'both_update'
+                  ? 'bg-indigo-50 text-indigo-700 border-indigo-200'
+                  : selectedLeadForMerge.matchedLead.updateType === 'need_email' || selectedLeadForMerge.matchedLead.updateType === 'need_phone'
                   ? 'bg-blue-50 text-blue-700 border-blue-200'
                   : selectedLeadForMerge.matchedLead.updateType === 'exact_duplicate'
                   ? 'bg-amber-50 text-amber-700 border-amber-200'
                   : 'bg-purple-50 text-purple-700 border-purple-200'
               }`}>
-                {selectedLeadForMerge.matchedLead.updateType === 'need_email' ? (
+                {selectedLeadForMerge.matchedLead.updateType === 'both_update' ? (
+                  <>
+                    <Phone className="w-3.5 h-3.5" />
+                    <Mail className="w-3.5 h-3.5" />
+                    <span>Lengkapi No. WA & Email Lead</span>
+                  </>
+                ) : selectedLeadForMerge.matchedLead.updateType === 'need_email' ? (
                   <>
                     <Mail className="w-3.5 h-3.5" />
                     <span>Lengkapi Email Lead</span>
@@ -1579,7 +1607,9 @@ export default function ScrapedLeadsClient({
                 )}
               </div>
               <h3 className="text-lg font-bold text-slate-900">
-                {selectedLeadForMerge.matchedLead.updateType === 'need_email'
+                {selectedLeadForMerge.matchedLead.updateType === 'both_update'
+                  ? 'Update No. WA & Email ke Lead Utama'
+                  : selectedLeadForMerge.matchedLead.updateType === 'need_email'
                   ? 'Update Email ke Lead Utama'
                   : selectedLeadForMerge.matchedLead.updateType === 'need_phone'
                   ? 'Update No. WA ke Lead Utama'
@@ -1656,7 +1686,8 @@ export default function ScrapedLeadsClient({
                 <div>
                   <div className="flex items-center justify-between">
                     <span className="text-[11px] text-indigo-600 font-medium block">No. WhatsApp Baru</span>
-                    {selectedLeadForMerge.matchedLead.updateType === 'need_phone' && (
+                    {(selectedLeadForMerge.matchedLead.updateType === 'need_phone' ||
+                      selectedLeadForMerge.matchedLead.updateType === 'both_update') && (
                       <span className="text-[10px] px-1.5 py-0.2 bg-emerald-100 text-emerald-800 rounded font-bold">
                         Akan Ditambahkan
                       </span>
@@ -1669,7 +1700,8 @@ export default function ScrapedLeadsClient({
                 <div>
                   <div className="flex items-center justify-between">
                     <span className="text-[11px] text-indigo-600 font-medium block">Email Baru</span>
-                    {selectedLeadForMerge.matchedLead.updateType === 'need_email' && (
+                    {(selectedLeadForMerge.matchedLead.updateType === 'need_email' ||
+                      selectedLeadForMerge.matchedLead.updateType === 'both_update') && (
                       <span className="text-[10px] px-1.5 py-0.2 bg-blue-100 text-blue-800 rounded font-bold">
                         Akan Ditambahkan
                       </span>
@@ -1722,13 +1754,17 @@ export default function ScrapedLeadsClient({
                   onClick={handleMergeConfirm}
                   disabled={isSubmitting}
                   className={`px-5 py-2 text-white rounded-xl text-sm font-bold shadow-md disabled:opacity-50 transition-all ${
-                    selectedLeadForMerge.matchedLead.updateType === 'need_email' || selectedLeadForMerge.matchedLead.updateType === 'need_phone'
+                    selectedLeadForMerge.matchedLead.updateType === 'both_update'
+                      ? 'bg-indigo-600 hover:bg-indigo-700 shadow-indigo-600/20'
+                      : selectedLeadForMerge.matchedLead.updateType === 'need_email' || selectedLeadForMerge.matchedLead.updateType === 'need_phone'
                       ? 'bg-blue-600 hover:bg-blue-700 shadow-blue-600/20'
                       : 'bg-purple-600 hover:bg-purple-700 shadow-purple-600/20'
                   }`}
                 >
                   {isSubmitting
                     ? 'Memproses...'
+                    : selectedLeadForMerge.matchedLead.updateType === 'both_update'
+                    ? 'Update WA & Email'
                     : selectedLeadForMerge.matchedLead.updateType === 'need_email'
                     ? 'Update Email'
                     : selectedLeadForMerge.matchedLead.updateType === 'need_phone'

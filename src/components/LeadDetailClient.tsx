@@ -17,6 +17,7 @@ import {
   Mail,
   Globe,
   Trash2,
+  ExternalLink,
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import {
@@ -372,15 +373,27 @@ export default function LeadDetailClient({ lead: initialLead, allTasks, user, us
           </div>
         </div>
 
-        <div className="flex items-center gap-3">
-          <a
-            href={`https://wa.me/${lead.contact.replace(/^0/, '62')}`}
-            target="_blank"
-            rel="noreferrer"
-            className="flex items-center gap-2 px-5 py-2.5 bg-emerald-600 text-white rounded-xl font-bold text-sm shadow-lg shadow-emerald-100 hover:bg-emerald-700 transition"
-          >
-            <Phone className="w-4 h-4" /> Hubungi WhatsApp
-          </a>
+        <div className="flex flex-wrap items-center gap-2">
+          {(lead.contact || '')
+            .split('/')
+            .map((c) => c.trim())
+            .filter(Boolean)
+            .map((c, idx, arr) => {
+              const cleanWa = c.replace(/^\+/, '').replace(/^0/, '62').replace(/[^\d]/g, '');
+              const label = arr.length > 1 ? `Hubungi WA ${idx + 1} (${c})` : 'Hubungi WhatsApp';
+              return (
+                <a
+                  key={idx}
+                  href={`https://wa.me/${cleanWa}`}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="flex items-center gap-2 px-4 py-2.5 bg-emerald-600 text-white rounded-xl font-bold text-sm shadow-lg shadow-emerald-100 hover:bg-emerald-700 transition"
+                  title={`Buka WhatsApp ${c}`}
+                >
+                  <Phone className="w-4 h-4" /> {label}
+                </a>
+              );
+            })}
         </div>
       </header>
 
@@ -404,8 +417,65 @@ export default function LeadDetailClient({ lead: initialLead, allTasks, user, us
                     dateStyle: 'long',
                   })}
                 />
-                <InfoItem icon={<Phone className="w-4 h-4" />} label="Kontak" value={lead.contact} />
-                {lead.email && <InfoItem icon={<Mail className="w-4 h-4" />} label="Email" value={lead.email} />}
+                
+                {/* Kontak WhatsApp (Mendukung multi-kontak dipisah /) */}
+                <div>
+                  <div className="flex items-center gap-2 text-xs font-bold text-slate-400 mb-1">
+                    <Phone className="w-3.5 h-3.5" />
+                    <span>Kontak WhatsApp</span>
+                  </div>
+                  <div className="flex flex-col gap-1 pl-5">
+                    {(lead.contact || '')
+                      .split('/')
+                      .map((c) => c.trim())
+                      .filter(Boolean)
+                      .map((c, idx) => {
+                        const cleanWa = c.replace(/^\+/, '').replace(/^0/, '62').replace(/[^\d]/g, '');
+                        return (
+                          <a
+                            key={idx}
+                            href={`https://wa.me/${cleanWa}`}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="text-xs font-bold text-emerald-600 hover:underline flex items-center gap-1"
+                            title={`Buka WhatsApp: ${c}`}
+                          >
+                            <span>{c}</span>
+                            <ExternalLink className="w-3 h-3 opacity-60" />
+                          </a>
+                        );
+                      })}
+                    {!(lead.contact || '').trim() && (
+                      <span className="text-xs text-slate-400 italic">Belum ada kontak</span>
+                    )}
+                  </div>
+                </div>
+
+                {/* Email (Mendukung multi-email dipisah /) */}
+                {lead.email && (
+                  <div>
+                    <div className="flex items-center gap-2 text-xs font-bold text-slate-400 mb-1">
+                      <Mail className="w-3.5 h-3.5" />
+                      <span>Email</span>
+                    </div>
+                    <div className="flex flex-col gap-1 pl-5">
+                      {lead.email
+                        .split('/')
+                        .map((e) => e.trim())
+                        .filter((e) => Boolean(e) && e !== '-')
+                        .map((e, idx) => (
+                          <a
+                            key={idx}
+                            href={`mailto:${e}`}
+                            className="text-xs font-semibold text-blue-600 hover:underline break-all"
+                            title={`Kirim email: ${e}`}
+                          >
+                            {e}
+                          </a>
+                        ))}
+                    </div>
+                  </div>
+                )}
               </div>
             </div>
 
