@@ -141,15 +141,19 @@ export async function getScrapedLeads(options?: {
 
       const isPhoneMatch = Boolean(
         cleanPhone.length >= 8 &&
-          (rawMlPhone.includes(cleanPhone) ||
-            cleanPhone.includes(rawMlPhone) ||
-            mlPhones.some((p) => p === cleanPhone || p.includes(cleanPhone) || cleanPhone.includes(p))),
+          mlPhones.length > 0 &&
+          mlPhones.some(
+            (p) =>
+              p.length >= 8 &&
+              (p === cleanPhone || p.includes(cleanPhone) || cleanPhone.includes(p)),
+          ),
       );
 
       const isEmailMatch = Boolean(
         cleanEmail.length >= 5 &&
           cleanEmail !== '-' &&
-          mlEmails.some((e) => e === cleanEmail),
+          mlEmails.length > 0 &&
+          mlEmails.some((e) => e.length >= 5 && e === cleanEmail),
       );
 
       // Cek apakah data scraping ini membawa No. WA atau Email yang baru/tambahan

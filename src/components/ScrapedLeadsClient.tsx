@@ -1650,7 +1650,11 @@ export default function ScrapedLeadsClient({
                 <div>
                   <span className="text-[11px] text-slate-400 font-medium block">No. WhatsApp di CRM</span>
                   <span className="font-semibold text-slate-800 block mt-0.5">
-                    {selectedLeadForMerge.matchedLead.contact ? `+${selectedLeadForMerge.matchedLead.contact}` : (
+                    {selectedLeadForMerge.matchedLead.contact &&
+                    selectedLeadForMerge.matchedLead.contact.trim() !== '' &&
+                    selectedLeadForMerge.matchedLead.contact.trim() !== '-' ? (
+                      `+${selectedLeadForMerge.matchedLead.contact.replace(/^\+/, '')}`
+                    ) : (
                       <span className="text-amber-600 font-medium">(Belum ada no WA)</span>
                     )}
                   </span>
@@ -1658,7 +1662,11 @@ export default function ScrapedLeadsClient({
                 <div>
                   <span className="text-[11px] text-slate-400 font-medium block">Email di CRM</span>
                   <span className="font-semibold text-slate-800 block mt-0.5 break-all">
-                    {selectedLeadForMerge.matchedLead.email || (
+                    {selectedLeadForMerge.matchedLead.email &&
+                    selectedLeadForMerge.matchedLead.email.trim() !== '' &&
+                    selectedLeadForMerge.matchedLead.email.trim() !== '-' ? (
+                      selectedLeadForMerge.matchedLead.email
+                    ) : (
                       <span className="text-amber-600 font-medium">(Belum ada email)</span>
                     )}
                   </span>
