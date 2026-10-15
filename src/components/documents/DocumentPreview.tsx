@@ -162,35 +162,48 @@ function RichDescription({
   return (
     <div className={`text-[10px] leading-[1.5] ${textColor} whitespace-pre-wrap break-words space-y-0.5`}>
       {processed.split(/\r?\n/).map((line, i) => {
-        let t = line.trim();
-        if (!t) return <div key={i} className="h-1" />;
-
-        // Check alignment tags [center], [right], [left]
+        // Cek alignment tags [center], [right], [left]
         let align = defaultAlign;
-        const centerMatch = /^\[center\]([\s\S]*?)(\[\/center\])?$/i.exec(t);
-        const rightMatch = /^\[right\]([\s\S]*?)(\[\/right\])?$/i.exec(t);
-        const leftMatch = /^\[left\]([\s\S]*?)(\[\/left\])?$/i.exec(t);
+        let lineContent = line;
+
+        const centerMatch = /^\[center\]([\s\S]*?)(\[\/center\])?$/i.exec(lineContent.trim());
+        const rightMatch = /^\[right\]([\s\S]*?)(\[\/right\])?$/i.exec(lineContent.trim());
+        const leftMatch = /^\[left\]([\s\S]*?)(\[\/left\])?$/i.exec(lineContent.trim());
 
         if (centerMatch) {
           align = 'center';
-          t = centerMatch[1].replace(/\[\/?center\]/gi, '').trim();
+          lineContent = centerMatch[1].replace(/\[\/?center\]/gi, '');
         } else if (rightMatch) {
           align = 'right';
-          t = rightMatch[1].replace(/\[\/?right\]/gi, '').trim();
+          lineContent = rightMatch[1].replace(/\[\/?right\]/gi, '');
         } else if (leftMatch) {
           align = 'left';
-          t = leftMatch[1].replace(/\[\/?left\]/gi, '').trim();
+          lineContent = leftMatch[1].replace(/\[\/?left\]/gi, '');
         }
 
         // Clean any stray tags just in case
-        t = t.replace(/\[\/?(center|right|left)\]/gi, '').trim();
+        lineContent = lineContent.replace(/\[\/?(center|right|left)\]/gi, '');
 
-        // Check Numbered List e.g. "1. ", "2) ", "10. "
-        const numMatch = /^(\d+[\.\)])\s*(.*)$/.exec(t);
+        if (!lineContent.trim()) return <div key={i} className="h-1" />;
+
+        // Hitung leading whitespace (spasi atau tab) untuk tingkat indentasi / sub-bullet
+        const leadingWhitespace = lineContent.match(/^([ \t]+)/);
+        let indentLevel = 0;
+        if (leadingWhitespace) {
+          const rawCount = leadingWhitespace[1].replace(/\t/g, '  ').length;
+          indentLevel = Math.min(Math.floor(rawCount / 2), 6);
+        }
+
+        const t = lineContent.trim();
+        const indentPadding = indentLevel > 0 ? `${indentLevel * 14}px` : undefined;
+
+        // Check Numbered List e.g. "1. ", "2) ", "10. ", atau sub-number "a. ", "b. ", "i. "
+        const numMatch = /^(\d+[\.\)]|[a-zA-Z][\.\)])\s*(.*)$/.exec(t);
         if (numMatch) {
           return (
             <div
               key={i}
+              style={{ paddingLeft: indentPadding }}
               className={`flex gap-1.5 print:break-inside-avoid ${
                 align === 'center' ? 'justify-center text-center' : align === 'right' ? 'justify-end text-right' : 'text-left'
               }`}
@@ -201,26 +214,30 @@ function RichDescription({
           );
         }
 
-        // Check Bullet List: only real bullet prefixes like "• ", "- ", or "* " (with trailing space and not ending with *)
+        // Check Bullet List: only real bullet prefixes like "• ", "- ", or "* "
         const bulletMatch = /^[•\-]\s+(.*)$/.exec(t) || (/^\*\s+(.*)$/.exec(t) && !/^\*[^*]+\*$/.test(t) ? /^\*\s+(.*)$/.exec(t) : null);
         if (bulletMatch) {
           return (
             <div
               key={i}
+              style={{ paddingLeft: indentPadding }}
               className={`flex gap-1.5 print:break-inside-avoid ${
                 align === 'center' ? 'justify-center text-center' : align === 'right' ? 'justify-end text-right' : 'text-left'
               }`}
             >
-              <span className="shrink-0 font-bold">&bull;</span>
+              <span className="shrink-0 font-bold">
+                {indentLevel > 0 ? '\u25E6' : '\u2022'}
+              </span>
               <span className="min-w-0">{renderInlineFormatted(bulletMatch[1])}</span>
             </div>
           );
         }
 
-        // Plain line
+        // Plain line (dengan kemungkinan indentasi)
         return (
           <div
             key={i}
+            style={{ paddingLeft: indentPadding }}
             className={`print:break-inside-avoid ${
               align === 'center' ? 'text-center' : align === 'right' ? 'text-right' : 'text-left'
             }`}

@@ -17,6 +17,8 @@ import {
   AlignCenter,
   AlignRight,
   Undo2,
+  Indent,
+  Outdent,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import {
@@ -350,6 +352,46 @@ export default function DocumentFormClient({ seed }: { seed?: DocumentFormSeed }
     // preview would lose its shape, so the last row just gets cleared.
     setItems((p) => (p.length === 1 ? [{ ...EMPTY_ITEM }] : p.filter((_, i) => i !== idx)));
   }, []);
+
+  const handleIndent = useCallback((itemIdx: number, outdent = false) => {
+    const textarea = document.getElementById(`item-desc-${itemIdx}`) as HTMLTextAreaElement | null;
+    if (!textarea) return;
+
+    const start = textarea.selectionStart;
+    const end = textarea.selectionEnd;
+    const currentItem = items[itemIdx];
+    const val = currentItem?.description || '';
+
+    // Ambil awal baris dari selection
+    const lineStart = val.lastIndexOf('\n', start - 1) + 1;
+    let lineEnd = val.indexOf('\n', end);
+    if (lineEnd === -1) lineEnd = val.length;
+
+    const selectedLinesText = val.substring(lineStart, lineEnd);
+    const lines = selectedLinesText.split('\n');
+
+    let newLines: string[];
+    if (outdent) {
+      // Mundur: buang hingga 2 spasi atau 1 tab di awal baris
+      newLines = lines.map((l) => l.replace(/^(  |\t| )/, ''));
+    } else {
+      // Masuk: tambah 2 spasi di awal baris
+      newLines = lines.map((l) => `  ${l}`);
+    }
+
+    const replacedText = newLines.join('\n');
+    const nextVal = val.substring(0, lineStart) + replacedText + val.substring(lineEnd);
+    setItem(itemIdx, { description: nextVal });
+
+    setTimeout(() => {
+      textarea.focus();
+      const diff = replacedText.length - selectedLinesText.length;
+      textarea.setSelectionRange(
+        Math.max(lineStart, start + (outdent ? -2 : 2)),
+        Math.max(lineStart, end + diff),
+      );
+    }, 0);
+  }, [items, setItem]);
 
   const canSave = clientName.trim() !== '' && items.some((i) => i.title.trim());
 
@@ -750,6 +792,26 @@ export default function DocumentFormClient({ seed }: { seed?: DocumentFormSeed }
                         <ListOrdered className="w-3.5 h-3.5" />
                       </button>
 
+                      {/* Indent (Masuk ke dalam / Sub-Item) */}
+                      <button
+                        type="button"
+                        onClick={() => handleIndent(idx, false)}
+                        className="p-1 text-slate-600 hover:text-slate-900 hover:bg-white rounded transition"
+                        title="Menjorok Masuk / Sub-Item (Tab)"
+                      >
+                        <Indent className="w-3.5 h-3.5" />
+                      </button>
+
+                      {/* Outdent (Mundur / Keluar) */}
+                      <button
+                        type="button"
+                        onClick={() => handleIndent(idx, true)}
+                        className="p-1 text-slate-600 hover:text-slate-900 hover:bg-white rounded transition"
+                        title="Maju ke Luar (Shift+Tab)"
+                      >
+                        <Outdent className="w-3.5 h-3.5" />
+                      </button>
+
                       <div className="w-px h-3 bg-slate-300 mx-0.5" />
 
                       {/* Align Left (Toggle) */}
@@ -842,8 +904,14 @@ export default function DocumentFormClient({ seed }: { seed?: DocumentFormSeed }
                     id={`item-desc-${idx}`}
                     value={item.description}
                     onChange={(e) => setItem(idx, { description: e.target.value })}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Tab') {
+                        e.preventDefault();
+                        handleIndent(idx, e.shiftKey);
+                      }
+                    }}
                     rows={5}
-                    placeholder={'Rincian deliverables:\n1. 400 Creator Level 1\n2. 125 Creator Level 2\n• Upload 850 Video with Yellow Cart\n[center]Notes tambahan[/center]'}
+                    placeholder={'Rincian deliverables:\n1. 500 Creators\n2. Upload 1,500 Video\n3. Tier Creator :\n   • Mega 1 (Sub-bullet tekan Tab)\n   • Macro 15\n4. Content and SOW video\n[center]Notes tambahan[/center]'}
                     className="w-full px-3 py-2 border border-slate-200 rounded-lg text-[11px] text-slate-600 outline-none focus:ring-2 focus:ring-indigo-500 leading-relaxed resize-y font-mono"
                   />
                 </div>
