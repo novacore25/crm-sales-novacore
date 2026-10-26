@@ -3,6 +3,7 @@
 import { and, asc, desc, eq, gte, inArray, lte, or, sql } from 'drizzle-orm';
 import { revalidatePath } from 'next/cache';
 import { z } from 'zod';
+import * as XLSX from 'xlsx';
 
 import { db } from '@/db';
 import { auditLogs, funnelHistory, leadNotes, leads, oiForecasts } from '@/db/schema';
@@ -1045,4 +1046,172 @@ export async function deleteNote(id: string): Promise<{ success: boolean; error?
 
   revalidatePath(`/lead/${deleted[0].leadId}`);
   return { success: true };
+}
+
+
+// ============================================================================
+// Excel Export
+// ============================================================================
+
+export async function exportLeadsToExcel(params: {
+  includeDeleted?: boolean;
+  search?: string;
+  statusFilter?: string;
+  categoryFilter?: string;
+  productFilter?: string[];
+  selectedIds?: string[];
+}): Promise<{
+  success: boolean;
+  base64?: string;
+  filename?: string;
+  total?: number;
+  error?: string;
+}> {
+  await requireUser();
+
+  try {
+    const conditions = [];
+
+    if (params.selectedIds && params.selectedIds.length > 0) {
+      conditions.push(inArray(leads.id, params.selectedIds));
+    } else {
+      if (!params.includeDeleted) conditions.push(eq(leads.isDeleted, false));
+      else conditions.push(eq(leads.isDeleted, true));
+
+      if (params.statusFilter && params.statusFilter !== 'ALL') {
+        conditions.push(eq(leads.status, params.statusFilter as never));
+      }
+      if (params.categoryFilter && params.categoryFilter !== 'ALL') {
+        conditions.push(eq(leads.category, params.categoryFilter));
+      }
+      if (params.productFilter?.length) {
+        conditions.push(sql`${leads.productOffered} && ${params.productFilter}::text[]`);
+      }
+      if (params.search?.trim()) {
+        const term = `%${params.search.trim()}%`;
+        const searchCond = or(
+          sql`${leads.brandName} ILIKE ${term}`,
+          sql`${leads.contact} ILIKE ${term}`,
+          sql`${leads.picName} ILIKE ${term}`,
+        );
+        conditions.push(searchCond!);
+      }
+    }
+
+    const where = conditions.length ? and(...conditions) : undefined;
+
+    const rows = await db
+      .select({
+        id: leads.id,
+        dateInput: leads.dateInput,
+        category: leads.category,
+        brandName: leads.brandName,
+        contact: leads.contact,
+        leadSource: leads.leadSource,
+        email: leads.email,
+        status: leads.status,
+        interestLevel: leads.interestLevel,
+        productOffered: leads.productOffered,
+        actionPlan: leads.actionPlan,
+        picName: leads.picName,
+        dealValue: leads.dealValue,
+        dateChated: leads.dateChated,
+        dateResponsed: leads.dateResponsed,
+        dateSetMeeting: leads.dateSetMeeting,
+        dateClosed: leads.dateClosed,
+        dateFailed: leads.dateFailed,
+        funnelTrail: sql<string | null>`(
+          SELECT string_agg(
+            '[' || fh.stage || ': ' || to_char(fh.date_occurred, 'YYYY-MM-DD') || ' by ' || COALESCE(fh.by_user_name, '-') || 
+            CASE WHEN fh.note IS NOT NULL AND fh.note != '' THEN ' - ' || fh.note ELSE '' END || ']',
+            ' | ' ORDER BY fh.date_occurred ASC, fh.created_at ASC
+          )
+          FROM funnel_history fh
+          WHERE fh.lead_id = ${leads.id}
+        )`,
+      })
+      .from(leads)
+      .where(where)
+      .orderBy(desc(leads.createdAt), desc(leads.id));
+
+    if (rows.length === 0) {
+      return { success: false, error: 'Tidak ada data leads yang ditemukan untuk diekspor.' };
+    }
+
+    const formatDateStr = (d: Date | string | null | undefined): string => {
+      if (!d) return '-';
+      try {
+        const dateObj = typeof d === 'string' ? new Date(d) : d;
+        if (isNaN(dateObj.getTime())) return '-';
+        return dateObj.toISOString().split('T')[0] ?? '-';
+      } catch {
+        return '-';
+      }
+    };
+
+    const excelRows = rows.map((r, index) => ({
+      'No': index + 1,
+      'Tanggal Input': r.dateInput ?? '-',
+      'Nama Brand': r.brandName,
+      'Kategori': r.category ?? '-',
+      'No WhatsApp': r.contact ?? '-',
+      'Sumber Lead': r.leadSource ?? '-',
+      'Email': r.email ?? '-',
+      'Produk Ditawarkan': (r.productOffered || []).join(', ') || '-',
+      'PIC Sales': r.picName ?? '-',
+      'Status Terakhir': r.status ?? '-',
+      'Level Minat': r.interestLevel ?? '-',
+      'Nilai Deal (Rp)': Number(r.dealValue) || 0,
+      'Tanggal Chat': formatDateStr(r.dateChated),
+      'Tanggal Respon': formatDateStr(r.dateResponsed),
+      'Tanggal Meeting': formatDateStr(r.dateSetMeeting),
+      'Tanggal Closed / Win': formatDateStr(r.dateClosed),
+      'Tanggal Failed / Lost': formatDateStr(r.dateFailed),
+      'Action Plan': r.actionPlan ?? '-',
+      'Rekam Jejak Funnel': r.funnelTrail ?? '-',
+    }));
+
+    const wb = XLSX.utils.book_new();
+    const ws = XLSX.utils.json_to_sheet(excelRows);
+
+    ws['!cols'] = [
+      { wch: 6 },   // No
+      { wch: 14 },  // Tanggal Input
+      { wch: 28 },  // Nama Brand
+      { wch: 16 },  // Kategori
+      { wch: 20 },  // No WhatsApp
+      { wch: 18 },  // Sumber Lead
+      { wch: 26 },  // Email
+      { wch: 24 },  // Produk Ditawarkan
+      { wch: 16 },  // PIC Sales
+      { wch: 16 },  // Status Terakhir
+      { wch: 14 },  // Level Minat
+      { wch: 18 },  // Nilai Deal (Rp)
+      { wch: 14 },  // Tanggal Chat
+      { wch: 14 },  // Tanggal Respon
+      { wch: 16 },  // Tanggal Meeting
+      { wch: 20 },  // Tanggal Closed / Win
+      { wch: 20 },  // Tanggal Failed / Lost
+      { wch: 32 },  // Action Plan
+      { wch: 65 },  // Rekam Jejak Funnel
+    ];
+
+    XLSX.utils.book_append_sheet(wb, ws, 'Database Leads');
+    const buf = XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' });
+    const base64 = (buf as Buffer).toString('base64');
+    const today = new Date().toISOString().split('T')[0];
+
+    return {
+      success: true,
+      base64,
+      filename: `TNT_Leads_Export_${today}.xlsx`,
+      total: rows.length,
+    };
+  } catch (err: any) {
+    console.error('Error exportLeadsToExcel:', err);
+    return {
+      success: false,
+      error: err?.message ?? 'Gagal mengekspor data leads ke Excel',
+    };
+  }
 }

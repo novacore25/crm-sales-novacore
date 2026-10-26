@@ -9,6 +9,7 @@ import {
   Pencil,
   Bolt,
   FileDown,
+  FileSpreadsheet,
   Upload,
   MessageSquare,
   Phone,
@@ -36,6 +37,7 @@ import {
   emptyTrash,
   deleteFunnelHistory,
   updateLead,
+  exportLeadsToExcel,
 } from '@/app/actions/lead-actions';
 
 interface LeadsTableProps {
@@ -88,6 +90,7 @@ export default function LeadsClient({
   const [currentPage, setCurrentPage] = useState(1);
   const [isLoading, setIsLoading] = useState(false);
   const [refreshKey, setRefreshKey] = useState(0);
+  const [isExporting, setIsExporting] = useState(false);
 
   const [search, setSearch] = useState('');
   const [debouncedSearch, setDebouncedSearch] = useState('');
@@ -618,35 +621,57 @@ export default function LeadsClient({
   };
 
   // -------------------------------------------------------------------------
-  // CSV export (current page, or the current selection)
+  // Super Export (Excel / XLSX - Entire database or active filter)
   // -------------------------------------------------------------------------
-  const exportCSV = () => {
-    const targetLeads =
-      selectedIds.size > 0 ? visibleLeads.filter((l) => selectedIds.has(l.id)) : visibleLeads;
+  const handleSuperExport = async () => {
+    if (isExporting) return;
+    setIsExporting(true);
+    const toastId = toast.loading(
+      selectedIds.size > 0
+        ? `Menyiapkan file Excel untuk ${selectedIds.size} lead terpilih...`
+        : `Menyiapkan file Excel untuk seluruh database (${total} records)...`,
+    );
 
-    let csv =
-      'Tgl Input,Nama Brand,Sumber Lead,Kategori,No WA,Email,Product Offered,Status Terbaru,Minat,Rekam Jejak Funnel\n';
-    targetLeads.forEach((l) => {
-      const hLog = (l.funnelHistory || [])
-        .map(
-          (h) =>
-            `[${h.stage}: ${h.dateOccurred} by ${h.byUserName}${
-              h.assignedBy ? ` (assigned by ${h.assignedBy})` : ''
-            }${h.note ? ` - ${h.note}` : ''}]`,
-        )
-        .join(' | ');
-      const products = (l.productOffered || []).join(', ');
-      csv += `${l.dateInput},"${l.brandName}","${l.leadSource || ''}","${l.category}",${l.contact},"${
-        l.email || ''
-      }","${products}",${l.status},${l.interestLevel},"${hLog}"\n`;
-    });
+    try {
+      const res = await exportLeadsToExcel({
+        includeDeleted: viewMode === 'trash',
+        search: debouncedSearch,
+        statusFilter: filterStatus,
+        categoryFilter: 'ALL',
+        productFilter: productFilterArg(filterProduct),
+        selectedIds: selectedIds.size > 0 ? Array.from(selectedIds) : undefined,
+      });
 
-    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
-    const link = document.createElement('a');
-    link.href = URL.createObjectURL(blob);
-    link.download = `TNT_Leads_Export_${new Date().toISOString().split('T')[0]}.csv`;
-    link.click();
-    toast.success(`${targetLeads.length} Lead berhasil diexport`);
+      if (!res.success || !res.base64) {
+        throw new Error(res.error ?? 'Gagal membuat file Excel');
+      }
+
+      // Convert base64 to Blob and trigger download
+      const binaryString = atob(res.base64);
+      const bytes = new Uint8Array(binaryString.length);
+      for (let i = 0; i < binaryString.length; i++) {
+        bytes[i] = binaryString.charCodeAt(i);
+      }
+      const blob = new Blob([bytes], {
+        type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      });
+      const link = document.createElement('a');
+      link.href = URL.createObjectURL(blob);
+      link.download = res.filename || `TNT_Leads_Export_${new Date().toISOString().split('T')[0]}.xlsx`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(link.href);
+
+      toast.dismiss(toastId);
+      toast.success(`Berhasil mendownload ${res.total} lead ke format Excel (.xlsx)!`);
+    } catch (error: any) {
+      toast.dismiss(toastId);
+      console.error('Gagal Super Export:', error);
+      toast.error('Gagal export: ' + (error?.message ?? 'Unknown error'));
+    } finally {
+      setIsExporting(false);
+    }
   };
 
   return (
@@ -742,10 +767,13 @@ export default function LeadsClient({
             )}
 
             <button
-              onClick={exportCSV}
-              className="bg-teal-600 hover:bg-teal-700 text-white px-5 py-2.5 rounded-xl font-bold transition flex items-center gap-2 shadow-lg shadow-teal-200 text-sm mr-2"
+              onClick={handleSuperExport}
+              disabled={isExporting}
+              className="bg-teal-600 hover:bg-teal-700 disabled:opacity-60 disabled:cursor-not-allowed text-white px-5 py-2.5 rounded-xl font-bold transition flex items-center gap-2 shadow-lg shadow-teal-200 text-sm mr-2"
+              title="Download seluruh data leads dalam format Excel (.xlsx)"
             >
-              <FileDown className="w-4 h-4 text-teal-100" /> Super Export
+              <FileSpreadsheet className="w-4 h-4 text-teal-100" />
+              {isExporting ? 'Mengekspor...' : 'Super Export'}
             </button>
 
             {viewMode === 'active' && (
