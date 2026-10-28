@@ -129,6 +129,15 @@ function rowsOf<T>(result: unknown): T[] {
 }
 
 /**
+ * Format a string array into a valid PostgreSQL array literal (e.g. {"TNT","HYPE"})
+ * so node-postgres binds it cleanly to `$1::text[]` without Drizzle comma-unpacking it.
+ */
+function toPgTextArray(arr?: string[] | null): string | null {
+  if (!arr || arr.length === 0) return null;
+  return `{${arr.map((s) => `"${s.replace(/["\\]/g, '\\$&')}"`).join(',')}}`;
+}
+
+/**
  * Aggregate funnel metrics for a date window.
  *
  * `productFilter` is bound as a real PostgreSQL array. Under PostgREST a JS
@@ -163,7 +172,7 @@ export async function getDashboardStats(filters: {
 
   const admin = filters.admin && filters.admin !== 'ALL' ? filters.admin : null;
   const category = filters.category && filters.category !== 'ALL' ? filters.category : null;
-  const products = filters.products?.length ? filters.products : null;
+  const products = toPgTextArray(filters.products);
   const startDate = filters.startDate ? new Date(filters.startDate) : null;
   const endDate = filters.endDate ? new Date(filters.endDate) : null;
 
@@ -295,7 +304,7 @@ export async function getIndividualContributions(filters: {
 
   const admin = filters.admin && filters.admin !== 'ALL' ? filters.admin : null;
   const category = filters.category && filters.category !== 'ALL' ? filters.category : null;
-  const products = filters.products?.length ? filters.products : null;
+  const products = toPgTextArray(filters.products);
   const startDate = filters.startDate ? new Date(filters.startDate) : null;
   const endDate = filters.endDate ? new Date(filters.endDate) : null;
 
@@ -521,7 +530,7 @@ export async function getGhostedLeads(filters: {
 
   const admin = filters.admin && filters.admin !== 'ALL' ? filters.admin : null;
   const category = filters.category && filters.category !== 'ALL' ? filters.category : null;
-  const products = filters.products?.length ? filters.products : null;
+  const products = toPgTextArray(filters.products);
   const minDays = filters.minDays ?? 10;
 
   const result = await db.execute(sql`

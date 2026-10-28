@@ -1,6 +1,6 @@
 'use server';
 
-import { and, asc, desc, eq, gte, inArray, lte, or, sql } from 'drizzle-orm';
+import { and, arrayOverlaps, asc, desc, eq, gte, inArray, lte, or, sql } from 'drizzle-orm';
 import { revalidatePath } from 'next/cache';
 import { z } from 'zod';
 import * as XLSX from 'xlsx';
@@ -175,9 +175,7 @@ export async function getLeadsPage(params: {
     conditions.push(eq(leads.category, params.categoryFilter));
   }
   if (params.productFilter?.length) {
-    conditions.push(
-      sql`${leads.productOffered} && ${params.productFilter}::text[]`,
-    );
+    conditions.push(arrayOverlaps(leads.productOffered, params.productFilter));
   }
   if (funnelAdmin || funnelStart || funnelEnd) {
     // The lead qualifies if anyone - or the selected PIC - moved it inside the
@@ -1085,7 +1083,7 @@ export async function exportLeadsToExcel(params: {
         conditions.push(eq(leads.category, params.categoryFilter));
       }
       if (params.productFilter?.length) {
-        conditions.push(sql`${leads.productOffered} && ${params.productFilter}::text[]`);
+        conditions.push(arrayOverlaps(leads.productOffered, params.productFilter));
       }
       if (params.search?.trim()) {
         const term = `%${params.search.trim()}%`;
