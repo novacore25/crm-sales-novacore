@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useState, useTransition } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, useTransition } from 'react';
 import { useRouter } from 'next/navigation';
 import {
   ArrowLeft,
@@ -253,6 +253,8 @@ export default function DocumentFormClient({ seed }: { seed?: DocumentFormSeed }
     setSeededFromNumber(true);
   }, [current?.format, seed, seededFromNumber]);
 
+  const companyRef = useRef<string | null>(null);
+
   /**
    * Bank accounts and signatories, loaded per company.
    *
@@ -267,12 +269,30 @@ export default function DocumentFormClient({ seed }: { seed?: DocumentFormSeed }
       setSignatoryOptions([]);
       return;
     }
+    const companyChanged = companyRef.current !== current.company;
+    companyRef.current = current.company;
+
     let cancelled = false;
     Promise.all([getBankAccounts(current.company), getSignatories(current.company)])
       .then(([banks, sigs]) => {
         if (cancelled) return;
         setBankOptions(banks);
         setSignatoryOptions(sigs);
+
+        // Auto-select the default (top) signatory & bank account for new documents,
+        // or when switching to a different company series
+        if (!seed) {
+          if (sigs.length > 0 && (companyChanged || !signatoryName || !sigs.some((s) => s.name.toLowerCase() === signatoryName.toLowerCase()))) {
+            setSignatoryName(sigs[0].name);
+            setSignatoryTitle(sigs[0].title ?? '');
+          }
+          if (banks.length > 0 && (companyChanged || !bankAccountName || !banks.some((b) => b.accountName.toLowerCase() === bankAccountName.toLowerCase()))) {
+            setBankAccountName(banks[0].accountName);
+            setBankName(banks[0].bankName ?? '');
+            setBankAccountNumber(banks[0].accountNumber ?? '');
+            setBankBranch(banks[0].branch ?? '');
+          }
+        }
       })
       .catch(() => {
         if (!cancelled) toast.error('Gagal memuat daftar rekening.');
@@ -280,7 +300,7 @@ export default function DocumentFormClient({ seed }: { seed?: DocumentFormSeed }
     return () => {
       cancelled = true;
     };
-  }, [current]);
+  }, [current, seed, signatoryName, bankAccountName]);
 
   // The SAME function the server action uses. Computing this inline in the
   // browser is how a preview starts promising a total the saved document does

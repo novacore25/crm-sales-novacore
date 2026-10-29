@@ -157,16 +157,49 @@ export async function getDocumentSeries() {
 // Reusable values: bank accounts and signatories
 // ---------------------------------------------------------------------------
 
+let hasSeededDefaults = false;
+
+async function ensureDefaultSignatoriesAndBanks() {
+  if (hasSeededDefaults) return;
+  try {
+    await db.execute(sql`
+      INSERT INTO "document_signatories" ("id", "company", "name", "title", "use_count", "is_active")
+      VALUES
+        ('tnt-calvin', 'TNT', 'Calvin Adiputra Triguna', 'Head of Business Operation', 100, true),
+        ('hype-stevani', 'HYPE', 'Stevani Adiwijaya', 'Direktur', 100, true)
+      ON CONFLICT ("company", upper("name"))
+      DO UPDATE SET
+        "title" = EXCLUDED."title",
+        "use_count" = EXCLUDED."use_count",
+        "is_active" = true;
+
+      INSERT INTO "document_bank_accounts" ("id", "company", "bank_name", "account_name", "account_number", "branch", "use_count", "is_active")
+      VALUES
+        ('hype-bca-media', 'HYPE', 'BCA', 'HYPE MEDIA INDONESIA CV', '8833278078', NULL, 100, true)
+      ON CONFLICT ("company", upper(coalesce("account_number", '')))
+      DO UPDATE SET
+        "bank_name" = EXCLUDED."bank_name",
+        "account_name" = EXCLUDED."account_name",
+        "use_count" = EXCLUDED."use_count",
+        "is_active" = true;
+    `);
+    hasSeededDefaults = true;
+  } catch (e) {
+    console.error('Failed to ensure default signatories/banks:', e);
+  }
+}
+
 /**
  * Bank accounts for one company, most used first.
  *
  * Company-scoped, and strictly. TNT pays from PT TNT KREATIF DIGITAL AL and
- * HYPE from PT SYNERA KREATIF GRUP; a shared list would let a HYPE invoice
+ * HYPE from PT SYNERA KREATIF GRUP / HYPE MEDIA INDONESIA CV; a shared list would let a HYPE invoice
  * print the TNT account and nothing would notice, because both the name and
  * the number are individually valid.
  */
 export async function getBankAccounts(company: string) {
   await requireUser();
+  await ensureDefaultSignatoriesAndBanks();
   const rows = await db
     .select()
     .from(documentBankAccounts)
@@ -178,6 +211,7 @@ export async function getBankAccounts(company: string) {
 /** Signatories for one company, most used first. */
 export async function getSignatories(company: string) {
   await requireUser();
+  await ensureDefaultSignatoriesAndBanks();
   const rows = await db
     .select()
     .from(documentSignatories)
