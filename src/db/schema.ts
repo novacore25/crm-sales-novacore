@@ -600,6 +600,7 @@ export const documents = pgTable(
      * entity rather than the brand the team calls them.
      */
     clientName: text('client_name').notNull(),
+    clientAddress: text('client_address'),
 
     /** Which product this concerns. Affects nothing except the segment field. */
     product: productEnum('product'),

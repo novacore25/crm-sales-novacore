@@ -37,6 +37,7 @@ export interface PreviewDoc {
   docType: string;
   number: string | null;
   clientName: string;
+  clientAddress?: string | null;
   issueDate: string | null;
   period: string | null;
   items: PreviewItem[];
@@ -543,6 +544,11 @@ function TntTemplate({ doc }: { doc: PreviewDoc }) {
           <div className="text-[14px] font-black text-slate-900 mt-0.5 break-words">
             {doc.clientName || '—'}
           </div>
+          {doc.clientAddress?.trim() && (
+            <div className="text-[10.5px] text-slate-600 mt-0.5 break-words whitespace-pre-line leading-relaxed max-w-sm font-medium">
+              {doc.clientAddress.trim()}
+            </div>
+          )}
         </div>
         <div className="shrink-0 text-right space-y-0.5">
           <div className="flex justify-end gap-2 text-[10px]">
@@ -793,8 +799,15 @@ function HypeTemplate({ doc }: { doc: PreviewDoc }) {
       </div>
 
       <div className="print:break-after-avoid" style={{ fontSize: '16pt', margin: '9mm 0 7mm' }}>
-        <span className="font-black">{isInvoice ? 'Invoice For' : 'Quotation For'} :</span>{' '}
-        <span className="font-normal">{doc.clientName || '—'}</span>
+        <div>
+          <span className="font-black">{isInvoice ? 'Invoice For' : 'Quotation For'} :</span>{' '}
+          <span className="font-normal">{doc.clientName || '—'}</span>
+        </div>
+        {doc.clientAddress?.trim() && (
+          <div className="text-[10pt] text-slate-700 font-normal mt-1 whitespace-pre-line leading-relaxed max-w-lg">
+            {doc.clientAddress.trim()}
+          </div>
+        )}
       </div>
 
       <table

@@ -29,6 +29,7 @@ export default async function EditDocumentPage({ params }: { params: Promise<{ i
     seriesId: doc.seriesId,
     number: doc.number,
     clientName: doc.clientName,
+    clientAddress: doc.clientAddress ?? null,
     issueDate: doc.issueDate,
     period: doc.period,
     // The form holds text; the columns come back as numbers. Converting here

@@ -152,6 +152,7 @@ export default function DocumentDetailClient({
     docType: doc.docType,
     number: doc.number,
     clientName: doc.clientName,
+    clientAddress: doc.clientAddress ?? null,
     issueDate: doc.issueDate,
     period: doc.period,
     items: doc.items.map((i) => ({

@@ -83,6 +83,7 @@ export interface DocumentFormSeed {
   seriesId: string;
   number: string | null;
   clientName: string;
+  clientAddress?: string | null;
   issueDate: string | null;
   period: string | null;
   taxRate: string | null;
@@ -126,6 +127,7 @@ export default function DocumentFormClient({ seed }: { seed?: DocumentFormSeed }
   const [manualValue, setManualValue] = useState('');
   const [codeOptions, setCodeOptions] = useState<{ id: string; code: string }[]>([]);
   const [clientName, setClientName] = useState(seed?.clientName ?? '');
+  const [clientAddress, setClientAddress] = useState(seed?.clientAddress ?? '');
   const [issueDate, setIssueDate] = useState(
     seed?.issueDate ?? new Date().toISOString().slice(0, 10),
   );
@@ -330,6 +332,7 @@ export default function DocumentFormClient({ seed }: { seed?: DocumentFormSeed }
        */
       number,
       clientName,
+      clientAddress,
       issueDate,
       period,
       items: items
@@ -355,7 +358,7 @@ export default function DocumentFormClient({ seed }: { seed?: DocumentFormSeed }
       signatoryTitle,
     }),
     [
-      current, number, clientName, issueDate, period, items, totals,
+      current, number, clientName, clientAddress, issueDate, period, items, totals,
       taxRate, taxLabel, terms, approverName, bankName,
       bankAccountName, bankAccountNumber, bankBranch, signatoryName, signatoryTitle,
     ],
@@ -426,6 +429,7 @@ export default function DocumentFormClient({ seed }: { seed?: DocumentFormSeed }
         seriesId,
         number: number.trim() || null,
         clientName: clientName.trim(),
+        clientAddress: clientAddress.trim() || null,
         product: null,
         issueDate: issueDate || null,
         period: period || null,
@@ -630,6 +634,22 @@ export default function DocumentFormClient({ seed }: { seed?: DocumentFormSeed }
               <span className="text-[10px] text-slate-400 mt-1 block">
                 Ketik persis seperti yang mau tampil di dokumen. Sering berbeda dari
                 nama brand di CRM.
+              </span>
+            </label>
+
+            <label className="block">
+              <span className="text-[10px] font-black uppercase tracking-widest text-slate-400">
+                Alamat Klien (Opsional)
+              </span>
+              <textarea
+                value={clientAddress}
+                onChange={(e) => setClientAddress(e.target.value)}
+                rows={2}
+                placeholder="mis. Jl. Jend. Sudirman Kav. 52-53, Jakarta Selatan (kosongkan jika tidak ingin ditampilkan)"
+                className="mt-1 w-full px-3 py-2 border border-slate-200 rounded-lg text-xs font-medium text-slate-700 outline-none focus:ring-2 focus:ring-indigo-500 resize-none"
+              />
+              <span className="text-[10px] text-slate-400 mt-1 block">
+                Jika diisi, alamat akan muncul di bawah nama klien pada dokumen. Jika dikosongkan, tidak akan ditampilkan.
               </span>
             </label>
           </div>

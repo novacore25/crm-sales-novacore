@@ -121,6 +121,7 @@ const documentSchema = z.object({
    */
   number: z.string().trim().max(120).nullish(),
   clientName: z.string().trim().min(1, 'Nama klien wajib diisi').max(300),
+  clientAddress: z.string().trim().max(1000).nullish(),
   product: z.enum(['TNT', 'MCN', 'HYPE']).nullish(),
   issueDate: z.string().nullish(),
   period: z.string().max(120).nullish(),
@@ -163,6 +164,8 @@ async function ensureDefaultSignatoriesAndBanks() {
   if (hasSeededDefaults) return;
   try {
     await db.execute(sql`
+      ALTER TABLE "documents" ADD COLUMN IF NOT EXISTS "client_address" text;
+
       INSERT INTO "document_signatories" ("id", "company", "name", "title", "use_count", "is_active")
       VALUES
         ('tnt-calvin', 'TNT', 'Calvin Adiputra Triguna', 'Head of Business Operation', 100, true),
@@ -553,6 +556,7 @@ export async function createDocument(
     status: 'DRAFT',
     number,
     clientName: data.clientName,
+    clientAddress: data.clientAddress ?? null,
     product: data.product ?? null,
     issueDate: data.issueDate ?? null,
     period: data.period ?? null,
@@ -675,6 +679,7 @@ export async function updateDocument(
       .set({
         number,
         clientName: data.clientName,
+        clientAddress: data.clientAddress ?? null,
         product: data.product ?? null,
         issueDate: data.issueDate ?? null,
         period: data.period ?? null,
