@@ -539,16 +539,20 @@ function TntTemplate({ doc }: { doc: PreviewDoc }) {
 
       {/* to / date / number */}
       <div className="mb-4 flex items-start justify-between gap-6 print:break-after-avoid">
-        <div className="min-w-0">
-          <div className="text-[9px] font-black uppercase tracking-widest text-slate-500">TO :</div>
-          <div className="text-[14px] font-black text-slate-900 mt-0.5 break-words">
-            {doc.clientName || '—'}
-          </div>
-          {doc.clientAddress?.trim() && (
-            <div className="text-[10.5px] text-slate-600 mt-0.5 break-words whitespace-pre-line leading-relaxed max-w-sm font-medium">
-              {doc.clientAddress.trim()}
+        <div className="min-w-0 flex items-start gap-1.5">
+          <span className="text-[10px] font-black uppercase tracking-widest text-slate-500 shrink-0 pt-0.5">
+            TO :
+          </span>
+          <div className="min-w-0">
+            <div className="text-[14px] font-black text-slate-900 break-words leading-tight">
+              {doc.clientName || '—'}
             </div>
-          )}
+            {doc.clientAddress?.trim() && (
+              <div className="text-[10.5px] text-slate-600 mt-1 break-words whitespace-pre-line leading-relaxed max-w-sm font-medium">
+                {doc.clientAddress.trim()}
+              </div>
+            )}
+          </div>
         </div>
         <div className="shrink-0 text-right space-y-0.5">
           <div className="flex justify-end gap-2 text-[10px]">
@@ -631,8 +635,8 @@ function TntTemplate({ doc }: { doc: PreviewDoc }) {
         {/* terms on the left, money on the right. The totals sit on one grey
             block that starts at the page's midpoint, as on the paper - a stacked
             list of thin-bordered rows read as a spreadsheet, not a quotation. */}
-        <div className="mt-4 flex gap-5 items-start">
-          <div className="flex-1 min-w-0 pt-0.5">
+        <div className="-mt-px flex gap-5 items-start">
+          <div className="flex-1 min-w-0 pt-2.5">
             <Terms text={doc.terms} />
           </div>
 
@@ -799,15 +803,17 @@ function HypeTemplate({ doc }: { doc: PreviewDoc }) {
       </div>
 
       <div className="print:break-after-avoid" style={{ fontSize: '16pt', margin: '9mm 0 7mm' }}>
-        <div>
-          <span className="font-black">{isInvoice ? 'Invoice For' : 'Quotation For'} :</span>{' '}
-          <span className="font-normal">{doc.clientName || '—'}</span>
-        </div>
-        {doc.clientAddress?.trim() && (
-          <div className="text-[10pt] text-slate-700 font-normal mt-1 whitespace-pre-line leading-relaxed max-w-lg">
-            {doc.clientAddress.trim()}
+        <div className="flex items-start gap-2">
+          <span className="font-black shrink-0">{isInvoice ? 'Invoice For :' : 'Quotation For :'}</span>
+          <div className="min-w-0">
+            <div className="font-normal leading-tight">{doc.clientName || '—'}</div>
+            {doc.clientAddress?.trim() && (
+              <div className="text-[10pt] text-slate-700 font-normal mt-1 whitespace-pre-line leading-relaxed max-w-lg">
+                {doc.clientAddress.trim()}
+              </div>
+            )}
           </div>
-        )}
+        </div>
       </div>
 
       <table
