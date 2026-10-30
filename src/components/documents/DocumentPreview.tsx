@@ -775,8 +775,8 @@ function HypeTemplate({ doc }: { doc: PreviewDoc }) {
            print:fixed bottom:0, so the sheet's footerSpace reserves room for it
            but does not move it; without this the last line sat on the trim edge
            instead of the 10%-up position the original has. */
-        <div className="text-[11pt] text-slate-900 print:break-inside-avoid" style={{ paddingBottom: '28mm' }}>
-          <div className="font-normal">PT SYNERA KREATIF GRUP</div>
+        <div className="text-[11pt] text-slate-900 print:break-inside-avoid text-center" style={{ paddingBottom: '28mm' }}>
+          <div className="font-normal">CV HYPE Media Indonesia</div>
           <div className="mt-[24mm]">
             <div>{doc.signatoryName || '—'}</div>
             <div>{doc.signatoryTitle || '—'}</div>
