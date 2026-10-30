@@ -70,6 +70,8 @@ export interface DocumentListRow {
   itemCount: number;
   createdByName: string | null;
   createdAt: string;
+  hasInvoice?: boolean;
+  invoiceCount?: number;
 }
 
 // ---------------------------------------------------------------------------
@@ -387,6 +389,7 @@ export async function getDocuments(opts: {
   status?: string;
   company?: string;
   docType?: string;
+  invoiceFilter?: 'ALL' | 'WITHOUT_INVOICE' | 'WITH_INVOICE';
 } = {}): Promise<{ rows: DocumentListRow[]; total: number }> {
   await requireUser();
   await ensureDefaultSignatoriesAndBanks();
@@ -403,6 +406,25 @@ export async function getDocuments(opts: {
   }
   if (opts.docType && opts.docType !== 'ALL') {
     conditions.push(eq(documentSeries.docType, opts.docType as never));
+  }
+  if (opts.invoiceFilter === 'WITHOUT_INVOICE') {
+    conditions.push(sql`(
+      SELECT COUNT(*)::int
+      FROM documents inv
+      JOIN document_series inv_s ON inv_s.id = inv.series_id
+      WHERE inv_s.doc_type = 'INVOICE'
+        AND upper(trim(inv.client_name)) = upper(trim(documents.client_name))
+        AND inv.status != 'CANCELLED'
+    ) = 0`);
+  } else if (opts.invoiceFilter === 'WITH_INVOICE') {
+    conditions.push(sql`(
+      SELECT COUNT(*)::int
+      FROM documents inv
+      JOIN document_series inv_s ON inv_s.id = inv.series_id
+      WHERE inv_s.doc_type = 'INVOICE'
+        AND upper(trim(inv.client_name)) = upper(trim(documents.client_name))
+        AND inv.status != 'CANCELLED'
+    ) > 0`);
   }
   if (opts.search?.trim()) {
     const term = `%${opts.search.trim()}%`;
@@ -424,7 +446,15 @@ export async function getDocuments(opts: {
       SELECT documents.id, documents.series_id, documents.number, documents.status, documents.client_name, documents.issue_date,
              documents.grand_total, documents.created_by_name, documents.created_at,
              document_series.company, document_series.doc_type, document_series.label AS series_label,
-             (SELECT COUNT(*)::int FROM document_items i WHERE i.document_id = documents.id) AS item_count
+             (SELECT COUNT(*)::int FROM document_items i WHERE i.document_id = documents.id) AS item_count,
+             (
+               SELECT COUNT(*)::int
+               FROM documents inv
+               JOIN document_series inv_s ON inv_s.id = inv.series_id
+               WHERE inv_s.doc_type = 'INVOICE'
+                 AND upper(trim(inv.client_name)) = upper(trim(documents.client_name))
+                 AND inv.status != 'CANCELLED'
+             ) AS invoice_count
       FROM documents
       JOIN document_series ON document_series.id = documents.series_id
       WHERE ${where}
@@ -432,7 +462,7 @@ export async function getDocuments(opts: {
     SELECT
       COUNT(*) OVER() AS total,
       id, series_id, number, status, client_name, company, doc_type, series_label,
-      issue_date, grand_total, item_count, created_by_name, created_at
+      issue_date, grand_total, item_count, invoice_count, created_by_name, created_at
     FROM filtered
     ORDER BY created_at DESC
     LIMIT ${pageSize} OFFSET ${page * pageSize}
@@ -454,6 +484,8 @@ export async function getDocuments(opts: {
         r.issue_date === null ? null : new Date(String(r.issue_date)).toISOString(),
       grandTotal: Number(r.grand_total ?? 0),
       itemCount: Number(r.item_count ?? 0),
+      hasInvoice: Number(r.invoice_count ?? 0) > 0,
+      invoiceCount: Number(r.invoice_count ?? 0),
       createdByName: r.created_by_name === null ? null : String(r.created_by_name),
       createdAt: new Date(String(r.created_at)).toISOString(),
     })),

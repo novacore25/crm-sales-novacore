@@ -80,6 +80,7 @@ const rupiah = (n: number) =>
  */
 export interface DocumentFormSeed {
   id: string;
+  isCopy?: boolean;
   seriesId: string;
   number: string | null;
   clientName: string;
@@ -102,7 +103,7 @@ export interface DocumentFormSeed {
 export default function DocumentFormClient({ seed }: { seed?: DocumentFormSeed }) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
-  const isEdit = !!seed;
+  const isEdit = !!seed && !seed.isCopy;
 
   const [series, setSeries] = useState<
     {
