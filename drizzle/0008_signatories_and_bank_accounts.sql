@@ -8,10 +8,10 @@ DO UPDATE SET
   "use_count" = EXCLUDED."use_count",
   "is_active" = true;
 
--- Add Stevani Adiwijaya as signatory for HYPE
+-- Add Stevani as signatory for HYPE
 INSERT INTO "document_signatories" ("id", "company", "name", "title", "use_count", "is_active")
 VALUES
-  ('hype-stevani', 'HYPE', 'Stevani Adiwijaya', 'Direktur', 100, true)
+  ('hype-stevani', 'HYPE', 'Stevani', 'Direktur', 100, true)
 ON CONFLICT ("company", upper("name"))
 DO UPDATE SET
   "title" = EXCLUDED."title",

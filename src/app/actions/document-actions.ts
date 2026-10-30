@@ -166,10 +166,20 @@ async function ensureDefaultSignatoriesAndBanks() {
     await db.execute(sql`
       ALTER TABLE "documents" ADD COLUMN IF NOT EXISTS "client_address" text;
 
+      DELETE FROM "document_signatories" WHERE "company" = 'HYPE' AND upper("name") = 'STEVANI ADIWIJAYA' AND "id" != 'hype-stevani';
+
+      UPDATE "document_signatories"
+      SET "name" = 'Stevani'
+      WHERE "id" = 'hype-stevani' OR upper("name") = 'STEVANI ADIWIJAYA';
+
+      UPDATE "documents"
+      SET "signatory_name" = 'Stevani'
+      WHERE "signatory_name" = 'Stevani Adiwijaya';
+
       INSERT INTO "document_signatories" ("id", "company", "name", "title", "use_count", "is_active")
       VALUES
         ('tnt-calvin', 'TNT', 'Calvin Adiputra Triguna', 'Head of Business Operation', 100, true),
-        ('hype-stevani', 'HYPE', 'Stevani Adiwijaya', 'Direktur', 100, true)
+        ('hype-stevani', 'HYPE', 'Stevani', 'Direktur', 100, true)
       ON CONFLICT ("company", upper("name"))
       DO UPDATE SET
         "title" = EXCLUDED."title",
@@ -379,6 +389,7 @@ export async function getDocuments(opts: {
   docType?: string;
 } = {}): Promise<{ rows: DocumentListRow[]; total: number }> {
   await requireUser();
+  await ensureDefaultSignatoriesAndBanks();
 
   const page = Math.max(0, opts.page ?? 0);
   const pageSize = Math.min(100, Math.max(1, opts.pageSize ?? 25));
@@ -391,7 +402,7 @@ export async function getDocuments(opts: {
     conditions.push(eq(documentSeries.company, opts.company as never));
   }
   if (opts.docType && opts.docType !== 'ALL') {
-    conditions.push(eq(documents.seriesId, 'never-match-this'));
+    conditions.push(eq(documentSeries.docType, opts.docType as never));
   }
   if (opts.search?.trim()) {
     const term = `%${opts.search.trim()}%`;
@@ -404,26 +415,19 @@ export async function getDocuments(opts: {
     );
   }
 
-  // docType is resolved through the series table, so it is filtered in the
-  // join rather than on documents, which has no such column.
-  const typeFilter =
-    opts.docType && opts.docType !== 'ALL'
-      ? sql`AND s.doc_type = ${opts.docType}`
-      : sql``;
-
   const where = conditions.length
     ? and(...conditions, sql`TRUE`)
     : sql`TRUE`;
 
   const result = await db.execute(sql`
     WITH filtered AS (
-      SELECT d.id, d.series_id, d.number, d.status, d.client_name, d.issue_date,
-             d.grand_total, d.created_by_name, d.created_at,
-             s.company, s.doc_type, s.label AS series_label,
-             (SELECT COUNT(*)::int FROM document_items i WHERE i.document_id = d.id) AS item_count
-      FROM documents d
-      JOIN document_series s ON s.id = d.series_id
-      WHERE ${where} ${typeFilter}
+      SELECT documents.id, documents.series_id, documents.number, documents.status, documents.client_name, documents.issue_date,
+             documents.grand_total, documents.created_by_name, documents.created_at,
+             document_series.company, document_series.doc_type, document_series.label AS series_label,
+             (SELECT COUNT(*)::int FROM document_items i WHERE i.document_id = documents.id) AS item_count
+      FROM documents
+      JOIN document_series ON document_series.id = documents.series_id
+      WHERE ${where}
     )
     SELECT
       COUNT(*) OVER() AS total,
